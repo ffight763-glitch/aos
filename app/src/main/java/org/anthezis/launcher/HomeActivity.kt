@@ -394,18 +394,16 @@ class HomeActivity : Activity() {
 
     private fun openDrawer() {
         sceneFx?.stop()   // the drawer covers the scene: no need to draw it
-        homeLayers(0f)
-        wallpaperFx(true)
-        drawer.alpha = 0f; drawer.translationY = dp(40).toFloat(); drawer.visibility = View.VISIBLE
-        drawer.animate().alpha(1f).translationY(0f).setDuration(if (Fx.on(this, "spring")) Fx.dur(420) else Motion.NORMAL).setInterpolator(Fx.settle(this)).start()
+        // Bottom sheet: the home stays behind it, blurred (Blur & Glass on) and dimmed; the sheet slides up over it.
+        blurHome(true)
+        drawer.animate().cancel(); drawer.alpha = 1f; drawer.translationY = 0f; drawer.visibility = View.VISIBLE
+        appDrawer.slideIn(Fx.dur(if (Fx.on(this, "spring")) 460L else 340L), Fx.settle(this))
     }
 
     private fun closeDrawer() {
         sceneFx?.start()
-        homeLayers(1f)
-        wallpaperFx(false)
-        drawer.animate().alpha(0f).translationY(dp(40).toFloat()).setDuration(Motion.FAST).setInterpolator(Motion.easeOut)
-            .withEndAction { drawer.visibility = View.GONE }.start()
+        blurHome(false)
+        appDrawer.slideOut(Fx.dur(260L)) { drawer.visibility = View.GONE }
     }
 
     private val wallpapers = AosStyles.all.map { it.id to "AOS ${it.name}" }
@@ -3636,40 +3634,36 @@ class HomeActivity : Activity() {
             if (bar.childCount > 0) bar.addView(View(this), if (compact) LinearLayout.LayoutParams(dp(4), 1) else LinearLayout.LayoutParams(0, 1, 1f))
             bar.addView(cell, LinearLayout.LayoutParams(dp(cellDp), dp(cellDp)))
         }
-        slot(ImageView(this).apply { setImageResource(R.drawable.ic_start); setColorFilter(p.accent); setPadding(dp(2), dp(2), dp(2), dp(2)) }) {
-            openDrawer()
-        }
-        // Desktop button: straight back to the main desktop (other desktops have their own way back, no picker menu).
-        deskIcon = ImageView(this).apply { setColorFilter(p.accent); setPadding(dp(2), dp(2), dp(2), dp(2)) }
-        paintDesk()
-        slot(deskIcon!!) { if (shownPage == feedOffset) switchDesk(0) else goDesk(0) }
-        paintDesk()   // the button's circle exists only now, so paint it again
-        for (key in listOf("dialer", "messaging", "documentsui", "chrome", "camera")) {
-            val own = key == "dialer" || key == "messaging" || key == "camera" || key == "documentsui"   // AOS Files replaces the system one
-            val ri = apps.firstOrNull { it.activityInfo.packageName.contains(key, true) }
-            if (!own && ri == null) continue
-            lateinit var iv: ImageView
-            iv = ImageView(this).apply {
-                if (own) {
-                    // Our own Phone and Messages apps, drawn as an accent tile with a white glyph.
-                    val glyph = getDrawable(when (key) { "dialer" -> R.drawable.ic_phone; "camera" -> R.drawable.ic_camera; "documentsui" -> R.drawable.ic_folder; else -> R.drawable.ic_chat })!!
-                        .mutate().also { it.setTint(p.onAccent) }
-                    setImageDrawable(android.graphics.drawable.LayerDrawable(arrayOf(shape(p.accent, 10), android.graphics.drawable.InsetDrawable(glyph, 0.24f))))
-                } else setImageDrawable(AosIcons.themed(this@HomeActivity, ri!!.loadIcon(packageManager), p, 34))
-            }
-            slot(iv) {
-                when (key) {
-                    "dialer" -> startActivity(Intent(this, PhoneActivity::class.java))
-                    "messaging" -> startActivity(Intent(this, MessagesActivity::class.java))
-                    "camera" -> startActivity(Intent(this, CameraActivity::class.java))
-                    "documentsui" -> startActivity(Intent(this, FilesActivity::class.java))
-                    else -> launch(ri!!, from = iv)
-                }
+        // A calm dock: five buttons, Start in the middle. The main desktop is the system Home button, Files lives in the
+        // app drawer, and split screen is a long-press on Start (its icon shows a close mark while split is on).
+        fun ownApp(key: String) {
+            val glyph = getDrawable(when (key) { "dialer" -> R.drawable.ic_phone; "camera" -> R.drawable.ic_camera; else -> R.drawable.ic_chat })!!
+                .mutate().also { it.setTint(p.onAccent) }
+            slot(ImageView(this).apply {
+                setImageDrawable(android.graphics.drawable.LayerDrawable(arrayOf(shape(p.accent, 10), android.graphics.drawable.InsetDrawable(glyph, 0.24f))))
+            }) {
+                startActivity(Intent(this, when (key) { "dialer" -> PhoneActivity::class.java; "camera" -> CameraActivity::class.java; else -> MessagesActivity::class.java }))
             }
         }
+        ownApp("dialer"); ownApp("messaging")
         splitIcon = ImageView(this).apply { setColorFilter(p.accent); setPadding(dp(2), dp(2), dp(2), dp(2)) }
         updateSplitIcon()
-        slot(splitIcon) { if (splitActive) exitSplit() else pickSplit() }
+        // The Start button itself: opens the drawer; while split screen is on it shows ✕ and a tap ends the split.
+        slot(splitIcon) { if (splitActive) exitSplit() else openDrawer() }
+        (bar.getChildAt(bar.childCount - 1) as? View)?.setOnLongClickListener {
+            it.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            if (splitActive) exitSplit() else pickSplit(); true
+        }
+        // Browser: the phone's own (Chrome or any other), AOS Browser when there is none.
+        val browser = apps.firstOrNull { it.activityInfo.packageName.contains("chrome", true) }
+        if (browser != null) {
+            lateinit var iv: ImageView
+            iv = ImageView(this).apply { setImageDrawable(AosIcons.themed(this@HomeActivity, browser.loadIcon(packageManager), p, 34)) }
+            slot(iv) { launch(browser, from = iv) }
+        } else slot(ImageView(this).apply { setImageResource(R.drawable.ic_language); setColorFilter(p.accent); setPadding(dp(6), dp(6), dp(6), dp(6)) }) {
+            startActivity(Intent(this, BrowserActivity::class.java))
+        }
+        ownApp("camera")
         // Semicircle dock: the same buttons, spread along the arc of a glass half-disc.
         var arc: SemiDock? = null
         if (semi) {
@@ -3725,7 +3719,7 @@ class HomeActivity : Activity() {
     private fun phoneGlyph() =getDrawable(R.drawable.ic_phone)!!.mutate().also { it.setTint(p.onAccent) }
 
     private fun updateSplitIcon() {
-        splitIcon.setImageResource(if (splitActive) R.drawable.ic_close else R.drawable.ic_split)
+        splitIcon.setImageResource(if (splitActive) R.drawable.ic_close else R.drawable.ic_start)
     }
 
     /** Split screen: choose two apps; the first fills the top, the second is launched next to it. */

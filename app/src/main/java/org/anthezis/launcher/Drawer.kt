@@ -178,12 +178,85 @@ class AppDrawer(
 
     private val column: LinearLayout = LinearLayout(act).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(12), dp(44), dp(12), dp(12))
+        setPadding(dp(12), 0, dp(12), dp(12))
+    }
+
+    // ---- Bottom sheet: the drawer slides up from the bottom over a dimmed home, with a grab handle on top. ----
+    // Tap the dimmed strip above it, drag the handle down, or swipe down on the list at its top to close it.
+
+    /** The dim layer over the home screen; a tap on it closes the drawer. */
+    private val scrim = View(act).apply {
+        setBackgroundColor(0x8C000000.toInt())
+        setOnClickListener { onClose() }
+    }
+
+    /** Grab handle: a short bar the sheet can be dragged down by (it follows the finger). */
+    private val handle = FrameLayout(act).apply {
+        addView(View(act).apply { background = act.shape((p.sub and 0xFFFFFF) or 0x99000000.toInt(), 3) },
+            FrameLayout.LayoutParams(dp(42), dp(5), Gravity.CENTER))
+        contentDescription = "Drag down to close"
+    }
+
+    /** The sheet itself: rounded top corners, nearly opaque so the home never ghosts through the app icons. */
+    private val sheet: FrameLayout = FrameLayout(act).apply {
+        val r = dp(30).toFloat()
+        background = android.graphics.drawable.GradientDrawable().apply {
+            setColor((p.bg and 0xFFFFFF) or 0xF2000000.toInt())
+            cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+            setStroke(dp(1), p.stroke)
+        }
+        clipToOutline = true; elevation = dp(16).toFloat()
+        addView(LinearLayout(act).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(handle, LinearLayout.LayoutParams(-1, dp(26)))
+            addView(column, LinearLayout.LayoutParams(-1, 0, 1f))
+        }, FrameLayout.LayoutParams(-1, -1))
     }
 
     val view: FrameLayout = FrameLayout(act).apply {
-        setBackgroundColor(p.glassScreen)
-        addView(column, FrameLayout.LayoutParams(-1, -1))
+        addView(scrim, FrameLayout.LayoutParams(-1, -1))
+        // A strip of the home stays visible above the sheet (status bar + a peek), so it reads as a sheet, not a new screen.
+        addView(sheet, FrameLayout.LayoutParams(-1, -1).apply { topMargin = dp(64) })
+    }
+
+    private fun sheetTravel() = (if (sheet.height > 0) sheet.height else act.resources.displayMetrics.heightPixels).toFloat()
+
+    /** Slide the sheet up from below the screen and fade the dim in. */
+    fun slideIn(duration: Long, interpolator: android.animation.TimeInterpolator) {
+        sheet.animate().cancel(); scrim.animate().cancel()
+        sheet.translationY = sheetTravel(); scrim.alpha = 0f
+        sheet.animate().translationY(0f).setDuration(duration).setInterpolator(interpolator).start()
+        scrim.animate().alpha(1f).setDuration(duration).start()
+    }
+
+    /** Slide the sheet back down (from wherever a drag left it) and fade the dim out; [end] runs when it is gone. */
+    fun slideOut(duration: Long, end: () -> Unit) {
+        sheet.animate().cancel(); scrim.animate().cancel()
+        val left = (1f - sheet.translationY / sheetTravel()).coerceIn(0.25f, 1f)
+        sheet.animate().translationY(sheetTravel()).setDuration((duration * left).toLong())
+            .setInterpolator(android.view.animation.AccelerateInterpolator(1.4f)).withEndAction(end).start()
+        scrim.animate().alpha(0f).setDuration((duration * left).toLong()).start()
+    }
+
+    init {
+        // Dragging the handle moves the sheet with the finger; let go past a quarter of its height (or flick down) to close.
+        var y0 = 0f; var t0 = 0L
+        handle.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> { y0 = e.rawY; t0 = e.eventTime; sheet.animate().cancel() }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    val d = (e.rawY - y0).coerceAtLeast(0f)
+                    sheet.translationY = d; scrim.alpha = 1f - (d / sheetTravel()).coerceIn(0f, 1f)
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    val d = e.rawY - y0
+                    val fast = d > dp(40) && d / ((e.eventTime - t0).coerceAtLeast(1)) > 0.9f   // px per ms
+                    if (d > sheetTravel() * 0.25f || fast) onClose()
+                    else { sheet.animate().translationY(0f).setDuration(220).setInterpolator(android.view.animation.DecelerateInterpolator()).start(); scrim.animate().alpha(1f).setDuration(220).start() }
+                }
+            }
+            true
+        }
     }
 
     /**
@@ -265,7 +338,7 @@ class AppDrawer(
         column.addView(railBar, LinearLayout.LayoutParams(-1, dp(54)).apply { topMargin = dp(8) })
         column.addView(body, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(6) })
 
-        view.addView(ImageView(act).apply {
+        sheet.addView(ImageView(act).apply {
             setImageResource(R.drawable.ic_boost); setColorFilter(p.onAccent)
             background = act.circle(p.accent); setPadding(dp(16), dp(16), dp(16), dp(16)); elevation = dp(6).toFloat()
             contentDescription = "Close background apps"

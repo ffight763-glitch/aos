@@ -30,7 +30,7 @@ jobs:
           mkdir -p ~/.android
           if [ -n "$KEY" ]; then echo "$KEY" | base64 -d > ~/.android/debug.keystore; echo "Using the shared debug key"
           else echo "::warning::DEBUG_KEYSTORE_B64 is not set: this APK will not install over the old one"; fi
-      - name: Build (public: no API keys inside)
+      - name: "Build (public, no API keys inside)"
         run: gradle -PaosPublic :app:assembleRelease --stacktrace
       - name: Name the APK
         run: |

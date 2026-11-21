@@ -22,9 +22,12 @@ import java.net.URL
  * The server is tools/serve_updates.py; over USB it is reached as 127.0.0.1:8000 via `adb reverse`.
  */
 object Updater {
-    // Public GitHub repo that tools/publish_github.cmd pushes to, so updates arrive over mobile internet too.
-    // Can be changed in Manager > Updates (e.g. to a local server for testing).
-    private const val DEFAULT_URL = "https://raw.githubusercontent.com/dozyFJ/ahome-updates/main"
+    // OTA channel: the newest GitHub release of the aos repo. GitHub Actions builds every push to main and attaches
+    // latest.json + aos.apk to it; /releases/latest/download/<file> always points at the newest one (pre-releases of
+    // other branches are skipped). Can be changed in Manager > Updates (e.g. to a local server for testing).
+    private const val DEFAULT_URL = "https://github.com/ffight763-glitch/aos/releases/latest/download"
+    /** The old channel (repo ahome-updates, filled by tools/publish_github.cmd): a saved copy of it moves to the new one. */
+    private const val OLD_URL = "https://raw.githubusercontent.com/dozyFJ/ahome-updates/main"
 
     fun setServerUrl(c: Context, url: String) {
         val clean = url.trim().trimEnd('/').let { if (it.startsWith("http")) it else "http://$it" }
@@ -33,6 +36,7 @@ object Updater {
 
     fun serverUrl(c: Context): String =
         c.getSharedPreferences("aos_update", Context.MODE_PRIVATE).getString("url", DEFAULT_URL).orEmpty()
+            .let { if (it.isBlank() || it == OLD_URL) DEFAULT_URL else it }
 
     fun currentVersion(c: Context): Pair<Long, String> {
         val info = c.packageManager.getPackageInfo(c.packageName, 0)
@@ -45,7 +49,8 @@ object Updater {
         Thread {
             try {
                 val conn = URL(serverUrl(act) + "/latest.json").openConnection() as HttpURLConnection
-                conn.connectTimeout = 4000; conn.readTimeout = 6000
+                conn.connectTimeout = 6000; conn.readTimeout = 10000; conn.instanceFollowRedirects = true
+                conn.setRequestProperty("Cache-Control", "no-cache")
                 val json = JSONObject(conn.inputStream.bufferedReader().readText())
                 val code = json.getLong("versionCode")
                 val (have, haveName) = currentVersion(act)
@@ -78,7 +83,7 @@ object Updater {
             try {
                 val file = File(act.cacheDir, "aos-update.apk")
                 val conn = URL(serverUrl(act) + "/" + apk).openConnection() as HttpURLConnection
-                conn.connectTimeout = 5000; conn.readTimeout = 30000
+                conn.connectTimeout = 8000; conn.readTimeout = 60000; conn.instanceFollowRedirects = true
                 conn.inputStream.use { input -> file.outputStream().use { input.copyTo(it) } }
                 install(act, file)
             } catch (e: Exception) {

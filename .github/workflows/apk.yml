@@ -1,5 +1,5 @@
 # Builds the AOS launcher APK on every push and on demand (Actions > Build APK > Run workflow).
-# The APK is attached to the run (Artifacts) and published as a pre-release, so it can be downloaded right on the phone.
+# main + the shared key -> OTA release (latest.json + aos.apk) that phones update from; anything else -> a pre-release.
 #
 # Signing: the app is signed with the debug key. To install updates over the version already on the phone, the CI must
 # use YOUR debug key: put the base64 of %USERPROFILE%\.android\debug.keystore into the repo secret DEBUG_KEYSTORE_B64.
@@ -27,19 +27,35 @@ jobs:
         env: { KEY: '${{ secrets.DEBUG_KEYSTORE_B64 }}' }
         run: |
           mkdir -p ~/.android
-          if [ -n "$KEY" ]; then echo "$KEY" | base64 -d > ~/.android/debug.keystore; echo "Using the shared debug key"
-          else echo "::warning::DEBUG_KEYSTORE_B64 is not set: this APK will not install over the old one"; fi
+          if [ -n "$KEY" ]; then echo "$KEY" | base64 -d > ~/.android/debug.keystore; echo "SIGNED=1" >> "$GITHUB_ENV"; echo "Using the shared debug key"
+          else echo "::warning::DEBUG_KEYSTORE_B64 is not set: test build only, no OTA (it would not install over the app)"; fi
       - name: "Build (public, no API keys inside)"
         run: gradle -PaosPublic :app:assembleRelease --stacktrace
-      - name: Name the APK
+      - name: Read the version from the APK
         run: |
-          v=$(date -u +%Y%m%d-%H%M)
-          echo "V=$v" >> "$GITHUB_ENV"
-          cp app/build/outputs/apk/release/app-release.apk "aos-$v.apk"
+          apk=app/build/outputs/apk/release/app-release.apk
+          aapt=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)aapt
+          badge=$("$aapt" dump badging "$apk" | head -1)
+          echo "CODE=$(echo "$badge" | sed -E "s/.*versionCode='([0-9]+)'.*/\1/")" >> "$GITHUB_ENV"
+          echo "NAME=$(echo "$badge" | sed -E "s/.*versionName='([^']*)'.*/\1/")" >> "$GITHUB_ENV"
+          echo "V=$(date -u +%Y%m%d-%H%M)" >> "$GITHUB_ENV"
+          cp "$apk" aos.apk
       - uses: actions/upload-artifact@v4
-        with: { name: 'aos-${{ env.V }}', path: 'aos-*.apk' }
-      - name: Pre-release
+        with: { name: 'aos-${{ env.NAME }}', path: aos.apk }
+      # OTA: a push to main with the shared key becomes the newest full release. Phones read
+      # releases/latest/download/latest.json and install aos.apk from the same release.
+      - name: OTA release (main)
+        if: github.ref == 'refs/heads/main' && env.SIGNED == '1'
         env: { GH_TOKEN: '${{ github.token }}' }
         run: |
-          gh release create "build-$V" "aos-$V.apk" --prerelease --target "$GITHUB_SHA" \
-            --title "AOS build $V (${GITHUB_REF_NAME})" --notes "Commit ${GITHUB_SHA::7}: $(git log -1 --format=%s)"
+          notes=$(git log -1 --format=%s)
+          python3 -c "import json,sys;json.dump({'versionCode':int(sys.argv[1]),'versionName':sys.argv[2],'apk':'aos.apk','notes':sys.argv[3]},open('latest.json','w'),ensure_ascii=False)" "$CODE" "$NAME" "$notes"
+          gh release create "v$NAME" aos.apk latest.json --latest --target "$GITHUB_SHA" --title "AOS $NAME" --notes "$notes"
+      # Any other branch, or main without the shared key: a pre-release, never offered to phones as an update.
+      - name: Test build (pre-release)
+        if: github.ref != 'refs/heads/main' || env.SIGNED != '1'
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          cp aos.apk "aos-$V.apk"
+          gh release create "build-$V" "aos-$V.apk" --prerelease --latest=false --target "$GITHUB_SHA" \
+            --title "AOS test build $V (${GITHUB_REF_NAME})" --notes "Commit ${GITHUB_SHA::7}: $(git log -1 --format=%s). Not an OTA update."

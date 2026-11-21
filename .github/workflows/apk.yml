@@ -1,0 +1,46 @@
+# Builds the AOS launcher APK on every push and on demand (Actions > Build APK > Run workflow).
+# The APK is attached to the run (Artifacts) and published as a pre-release, so it can be downloaded right on the phone.
+#
+# Signing: the app is signed with the debug key. To install updates over the version already on the phone, the CI must
+# use YOUR debug key: put the base64 of %USERPROFILE%\.android\debug.keystore into the repo secret DEBUG_KEYSTORE_B64.
+# Without the secret the build still works, but it gets a fresh key and Android will ask to uninstall the old app first.
+name: Build APK
+on:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.10.2' }
+      - name: Restore the developer's debug key
+        env: { KEY: '${{ secrets.DEBUG_KEYSTORE_B64 }}' }
+        run: |
+          mkdir -p ~/.android
+          if [ -n "$KEY" ]; then echo "$KEY" | base64 -d > ~/.android/debug.keystore; echo "Using the shared debug key"
+          else echo "::warning::DEBUG_KEYSTORE_B64 is not set: this APK will not install over the old one"; fi
+      - name: Build (public: no API keys inside)
+        run: gradle -PaosPublic :app:assembleRelease --stacktrace
+      - name: Name the APK
+        run: |
+          v=$(date -u +%Y%m%d-%H%M)
+          echo "V=$v" >> "$GITHUB_ENV"
+          cp app/build/outputs/apk/release/app-release.apk "aos-$v.apk"
+      - uses: actions/upload-artifact@v4
+        with: { name: 'aos-${{ env.V }}', path: 'aos-*.apk' }
+      - name: Pre-release
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          gh release create "build-$V" "aos-$V.apk" --prerelease --target "$GITHUB_SHA" \
+            --title "AOS build $V (${GITHUB_REF_NAME})" --notes "Commit ${GITHUB_SHA::7}: $(git log -1 --format=%s)"

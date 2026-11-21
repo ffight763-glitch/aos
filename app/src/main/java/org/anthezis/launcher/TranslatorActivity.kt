@@ -59,6 +59,7 @@ class TranslatorPanel(private val host: Activity) : android.content.ContextWrapp
     private lateinit var tabs: LinearLayout
     private var mode = 0
     private var tts: TextToSpeech? = null
+    private var ttsReady = false
     private val translators = HashMap<String, Translator>()
 
     // Every language ML Kit can translate (about 59), the common ones first.
@@ -80,7 +81,9 @@ class TranslatorPanel(private val host: Activity) : android.content.ContextWrapp
         p = Palette(this)
         langA = if (Locale.getDefault().language in codes) Locale.getDefault().language else "en"
         langB = if (langA == "en") "uk" else "en"
-        tts = TextToSpeech(this) { }
+        tts?.shutdown()   // createView can run again (home panel): do not leak the old engine
+        ttsReady = false
+        tts = TextToSpeech(this) { status -> ttsReady = status == TextToSpeech.SUCCESS }
         body = FrameLayout(this)
         tabs = LinearLayout(this).apply { gravity = Gravity.CENTER }
         val root = LinearLayout(this).apply {
@@ -103,7 +106,7 @@ class TranslatorPanel(private val host: Activity) : android.content.ContextWrapp
 
     fun pause() {
         if (::p.isInitialized) stopMicAnim()
-        recActive = false
+        recActive = false; recDone = null
         handler.removeCallbacksAndMessages(null)
         recognizer?.cancel(); recognizer?.destroy(); recognizer = null
         tts?.stop()
@@ -141,7 +144,12 @@ class TranslatorPanel(private val host: Activity) : android.content.ContextWrapp
 
     private fun speak(textToSay: String, lang: String) {
         val t = tts ?: return
-        t.language = Locale(lang)
+        if (textToSay.isBlank()) return
+        if (!ttsReady) { Toast.makeText(this, "The voice is still loading, try again in a second", Toast.LENGTH_SHORT).show(); return }
+        val r = t.setLanguage(Locale(lang))
+        if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
+            Toast.makeText(this, "No ${nameOf(lang)} voice on this phone: add it in Settings > Text-to-speech", Toast.LENGTH_LONG).show(); return
+        }
         t.speak(textToSay, TextToSpeech.QUEUE_FLUSH, null, "aos")
     }
 
@@ -182,6 +190,8 @@ class TranslatorPanel(private val host: Activity) : android.content.ContextWrapp
 
     private var recognizer: SpeechRecognizer? = null
     private var recActive = false
+    /** Where the words of the current recording go (the mic that started it). */
+    private var recDone: ((String) -> Unit)? = null
 
     // ---- listening animation: rings spread out of the mic while it records, a stronger pulse when words arrive ----
     private var activeMic: View? = null
@@ -200,7 +210,8 @@ class TranslatorPanel(private val host: Activity) : android.content.ContextWrapp
     }
     private fun startMicAnim(v: View) {
         stopMicAnim(); activeMic = v; waves?.show()
-        (v.parent as? android.view.ViewGroup)?.getChildAt(0)?.let { it as? TextView }?.takeIf { it !== v }?.let { bar ->
+        // Only a button can become the Stop bar: in Dialogue the first child is the text field, which must keep its text.
+        (v.parent as? android.view.ViewGroup)?.getChildAt(0)?.let { it as? TextView }?.takeIf { it !== v && it !is EditText }?.let { bar ->
             stopBarSaved = Triple(bar.text, bar.background, null)
             stopBar = bar
             bar.background = shape(0xFFE5484D.toInt(), 22); bar.setTextColor(0xFFFFFFFF.toInt())
@@ -257,12 +268,15 @@ class TranslatorPanel(private val host: Activity) : android.content.ContextWrapp
     /** [continuous] = keep listening sentence after sentence (Text mode); false = the first pause ends it (Dialogue). */
     private fun listen(lang: String, partial: ((String) -> Unit)? = null, continuous: Boolean = true, done: (String) -> Unit) {
         if (recActive) {   // a second tap = that was all: hand over what was heard
+            // ...to the side that started the recording: tapping the other person's mic must not send my words as theirs.
+            val owner = recDone; recDone = null
             stopMicAnim()
             recActive = false; recognizer?.destroy(); recognizer = null
             val text = heard.trim(); heard = ""
-            if (text.isNotEmpty()) done(text)
+            if (text.isNotEmpty()) (owner ?: done)(text)
             return
         }
+        recDone = done
         val online = runCatching {
             val cm = getSystemService(android.net.ConnectivityManager::class.java)
             cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
@@ -285,6 +299,7 @@ class TranslatorPanel(private val host: Activity) : android.content.ContextWrapp
         var ready = false
         fun finish() {
             stopMicAnim()
+            recDone = null
             recActive = false; recognizer?.destroy(); recognizer = null
             val text = heard.trim(); heard = ""
             if (text.isNotEmpty()) done(text)
@@ -429,17 +444,26 @@ class TranslatorPanel(private val host: Activity) : android.content.ContextWrapp
         }
         val result = text("", 18f, p.text).apply { setPadding(dp(16), dp(14), dp(16), dp(14)); setTextIsSelectable(true) }
         val status = text("", 12f, p.sub).apply { setPadding(dp(4), dp(4), 0, 0) }
+        var seq = 0
         fun run() {
+            val my = ++seq
             status.text = "Translating… (a language pack downloads the first time)"
             translate(input.text.toString(), langA, langB) { r ->
-                runOnUiThread { result.text = r ?: ""; status.text = if (r == null) "Could not translate: check the internet for the first download" else "" }
+                runOnUiThread { if (my != seq) return@runOnUiThread; result.text = r ?: ""; status.text = if (r == null) "Could not translate: check the internet for the first download" else "" }
             }
         }
-        val a = langChip({ langA }) { langA = it }
-        val b = langChip({ langB }) { langB = it }
+        val a = langChip({ langA }) { langA = it; if (input.text.isNotBlank()) run() }
+        val b = langChip({ langB }) { langB = it; if (input.text.isNotBlank()) run() }
         val swap = text("⇄", 20f, p.text, true).apply {
             gravity = Gravity.CENTER; background = circle(p.glassCircle)
-            setOnClickListener { val t = langA; langA = langB; langB = t; show(0) }
+            // Swap in place: the languages and the texts trade places, nothing typed is lost.
+            setOnClickListener {
+                val t = langA; langA = langB; langB = t
+                a.text = nameOf(langA); b.text = nameOf(langB)
+                val out = result.text.toString()
+                if (out.isNotBlank()) { input.setText(out); input.setSelection(out.length) }
+                if (input.text.isNotBlank()) run() else result.text = ""
+            }
         }
         return ScrollView(this).apply {
             isVerticalScrollBarEnabled = false

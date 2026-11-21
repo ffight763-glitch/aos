@@ -1,0 +1,23 @@
+<resources>
+    <style name="Theme.AOS" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowShowWallpaper">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@style/AosWindowAnim</item>
+    </style>
+    <!-- The Control Center over other apps: a see-through window, the app below stays visible; the panel animates itself. -->
+    <style name="Theme.AOS.Overlay" parent="Theme.AOS">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowShowWallpaper">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+    <!-- Global window animation for AOS screens: short fade + slight scale, nothing heavier. -->
+    <style name="AosWindowAnim" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/aos_open_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/aos_open_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/aos_close_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/aos_close_exit</item>
+    </style>
+</resources>

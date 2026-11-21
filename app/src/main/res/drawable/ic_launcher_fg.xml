@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ahome icon: a bold white "A" inside the 66dp safe zone of an adaptive icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:fillType="evenOdd"
+        android:pathData="M50,31 L58,31 L76,77 L66.5,77 L62.6,66.5 L45.4,66.5 L41.5,77 L32,77 Z M48.3,58.5 L59.7,58.5 L54,42.5 Z" />
+</vector>

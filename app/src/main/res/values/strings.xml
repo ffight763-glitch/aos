@@ -1,0 +1,5 @@
+﻿<resources>
+    <string name="split_service_desc">Lets AOS Home start and leave split-screen mode with two apps. It does not read the screen.</string>
+    <string name="aos_wallpaper_desc">AOS animated theme: your AOS style as a living wallpaper</string>
+</resources>
+

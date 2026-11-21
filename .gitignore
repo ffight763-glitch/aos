@@ -1,0 +1,11 @@
+﻿build/
+app/build/
+.gradle/
+.kotlin/
+.idea/
+local.properties
+scrcpy/
+updates/
+*.apk
+.codex-backups/
+.claude/

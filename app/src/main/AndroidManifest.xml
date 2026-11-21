@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- AOS AI: screen picture + microphone in a foreground service, the mic button over other apps. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Roaming widget: mobile data used since the package started (the user grants usage access in Settings). -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"/>
+    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR"/>
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+    <!-- AOS Files: browsing every folder; the user turns it on in Settings ("All files access"). -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+    <!-- Feed news: RSS is fetched over the network -->
+
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.CALL_PHONE"/>
+    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
+    <uses-permission android:name="android.permission.READ_CALL_LOG"/>
+    <uses-permission android:name="android.permission.READ_CONTACTS"/>
+    <uses-permission android:name="android.permission.READ_SMS"/>
+    <uses-permission android:name="android.permission.SEND_SMS"/>
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <uses-permission android:name="android.permission.SET_WALLPAPER"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"/>
+    <!-- A 1-pixel probe below the system bar tells the AOS navigation buttons when an app goes full screen (NavBar). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <queries>
+        <intent><action android:name="android.speech.RecognitionService"/></intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent>
+    </queries>
+    <application android:label="ahome" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:theme="@style/Theme.AOS" android:usesCleartextTraffic="true">
+        <activity android:name=".HomeActivity" android:exported="true" android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+                <category android:name="android.intent.category.HOME"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
+        <activity android:name=".TubeActivity" android:label="AOS Tube" android:icon="@drawable/ic_tube"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <activity android:name=".EffectsActivity" android:label="Effects" android:exported="false"/>
+        <activity android:name=".SettingsActivity" android:label="AOS Settings" android:icon="@drawable/ic_tools"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <service android:name=".SplitService" android:label="AOS Split Screen" android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService"/></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/split_service"/>
+        </service>
+        <activity android:name=".LockActivity" android:exported="false" android:showWhenLocked="true" android:turnScreenOn="false"
+            android:excludeFromRecents="true" android:launchMode="singleTask" android:taskAffinity=""/>
+        <!-- The Control Center over any app (swipe down from the top edge). -->
+        <activity android:name=".ControlCenterActivity" android:exported="false" android:theme="@style/Theme.AOS.Overlay"
+            android:excludeFromRecents="true" android:launchMode="singleTask" android:taskAffinity="" android:noHistory="true"/>
+        <service android:name=".AosWallpaperService" android:label="AOS Animated Theme" android:exported="true"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter><action android:name="android.service.wallpaper.WallpaperService"/></intent-filter>
+            <meta-data android:name="android.service.wallpaper" android:resource="@xml/aos_wallpaper"/>
+        </service>
+        <service android:name=".AosAssistService" android:label="AOS Power Menu" android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <intent-filter><action android:name="android.service.voice.VoiceInteractionService"/></intent-filter>
+            <meta-data android:name="android.voice_interaction" android:resource="@xml/aos_assist"/>
+        </service>
+        <service android:name=".AosAssistSessionService" android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"/>
+        <activity android:name=".PowerMenuActivity" android:exported="false" android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" android:launchMode="singleInstance"/>
+        <service android:name=".NotifService" android:label="ahome notifications" android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService"/></intent-filter>
+        </service>
+        <service android:name=".SpamScreeningService" android:exported="true"
+            android:permission="android.permission.BIND_SCREENING_SERVICE">
+            <intent-filter><action android:name="android.telecom.CallScreeningService"/></intent-filter>
+        </service>
+        <activity android:name=".PhoneActivity" android:label="Phone" android:icon="@drawable/ic_phone" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <activity android:name=".CameraActivity" android:label="Camera" android:icon="@drawable/ic_camera" android:exported="true"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <activity android:name=".BrowserActivity" android:label="Browser" android:icon="@drawable/ic_language" android:exported="true"
+            android:launchMode="singleTask" android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="http"/>
+                <data android:scheme="https"/>
+            </intent-filter>
+        </activity>
+        <activity android:name=".TranslatorActivity" android:label="Translate" android:icon="@drawable/ic_language" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <activity android:name=".GalleryActivity" android:label="Gallery" android:icon="@drawable/ic_camera" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <activity android:name=".MessagesActivity" android:label="Messages" android:icon="@drawable/ic_chat" android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!-- AOS keyboard: Russian / English / symbols in the launcher's theme (AosKeyboard.kt). -->
+        <service android:name=".AosKeyboardService" android:label="AOS Keyboard" android:exported="true"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter><action android:name="android.view.InputMethod"/></intent-filter>
+            <meta-data android:name="android.view.im" android:resource="@xml/aos_ime"/>
+        </service>
+        <!-- A text field that opens the keyboard: adb shell am start -n org.anthezis.ahome/org.anthezis.launcher.KeyboardTestActivity -->
+        <activity android:name=".KeyboardTestActivity" android:label="Keyboard test" android:exported="true"
+            android:windowSoftInputMode="stateAlwaysVisible|adjustResize"/>
+        <!-- AOS Files: file manager in the AOS style; its provider hands single files to other apps (read-only). -->
+        <activity android:name=".FilesActivity" android:label="Files" android:icon="@drawable/ic_folder" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <provider android:name=".AosFileProvider" android:authorities="org.anthezis.ahome.files" android:exported="false" android:grantUriPermissions="true"/>
+        <receiver android:name=".UpdateReceiver" android:exported="false"/>
+        <!-- The current AOS theme for other AOS apps (read-only, nothing private in it). -->
+        <provider android:name=".ThemeProvider" android:authorities="org.anthezis.ahome.theme" android:exported="true"/>
+        <!-- AOS AI: voice assistant that sees the screen (Claude). -->
+        <activity android:name=".AiAssistantActivity" android:label="AOS AI" android:icon="@drawable/ic_aos_mic" android:exported="true"
+            android:launchMode="singleTask" android:taskAffinity="org.anthezis.ai">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <service android:name=".AiAssistantService" android:exported="false" android:foregroundServiceType="mediaProjection|microphone"/>
+        <!-- AOS Recorder: floating record button. -->
+        <activity android:name=".ScreenRecorderActivity" android:label="AOS Recorder" android:icon="@drawable/ic_aos_rec" android:exported="true"
+            android:launchMode="singleTask" android:taskAffinity="org.anthezis.rec">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <service android:name=".ScreenRecordService" android:exported="false" android:foregroundServiceType="mediaProjection|microphone"/>
+    </application>
+</manifest>
+

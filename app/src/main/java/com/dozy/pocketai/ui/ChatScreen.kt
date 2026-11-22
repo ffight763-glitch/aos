@@ -33,6 +33,8 @@ import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -74,11 +76,19 @@ import com.dozy.pocketai.data.WebSource
 import kotlinx.coroutines.launch
 
 @Composable
-fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit) {
+fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openSettings: () -> Unit) {
     val p = LocalPulse.current
     val ui by vm.ui.collectAsStateWithLifecycle()
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val gh by vm.github.state.collectAsStateWithLifecycle()
+    var repoSheet by remember { mutableStateOf(false) }
+    if (repoSheet) RepoSheet(
+        vm.github, gh.attachment,
+        onDone = { vm.github.attach(it); repoSheet = false },
+        onLogin = { repoSheet = false; openSettings() },
+        onDismiss = { repoSheet = false },
+    )
 
     ModalNavigationDrawer(
         drawerState = drawer,
@@ -127,7 +137,27 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit) {
             }
 
             StatusLine(ui)
+            gh.attachment?.let { a ->
+                Row(
+                    Modifier.padding(start = 12.dp, top = 4.dp).clip(RoundedCornerShape(50)).background(p.card)
+                        .border(1.dp, p.gridLine, RoundedCornerShape(50)).clickable { repoSheet = true }
+                        .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.Folder, null, tint = p.ink, modifier = Modifier.size(16.dp))
+                    Text(
+                        " ${a.repo.fullName.substringAfter('/')} · ${a.files.size} файл.",
+                        color = p.ink, fontSize = 12.sp,
+                    )
+                    Icon(
+                        Icons.Outlined.Close, "Отключить", tint = p.muted,
+                        modifier = Modifier.size(28.dp).clip(CircleShape).clickable { vm.github.attach(null) }.padding(6.dp),
+                    )
+                }
+            }
             InputBar(
+                onFolder = { repoSheet = true },
+                folderActive = gh.attachment != null,
                 busy = ui.phase != Phase.Idle,
                 web = ui.webEnabled,
                 code = ui.codeMode,
@@ -253,6 +283,10 @@ private fun UserBubble(m: Message) {
                 .background(p.selected)
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         )
+        if (m.repoFiles.isNotEmpty()) {
+            Text("📁 " + m.repoFiles.joinToString(", ") { it.substringAfterLast('/') }.take(80),
+                color = p.muted, fontSize = 11.sp, modifier = Modifier.padding(top = 3.dp, end = 6.dp))
+        }
         if (m.sources.isNotEmpty()) {
             Text("🌐 найдено источников: ${m.sources.size}", color = p.muted, fontSize = 11.sp, modifier = Modifier.padding(top = 3.dp, end = 6.dp))
         }
@@ -311,7 +345,6 @@ private fun BotBubble(text: String, m: Message?, sources: List<WebSource>, isLas
             Row(Modifier.padding(top = 2.dp, start = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 SmallAction(Icons.Outlined.ContentCopy, "Копировать") { clipboard.setText(AnnotatedString(answer)) }
                 if (isLast) SmallAction(Icons.Outlined.Refresh, "Заново", onRegenerate)
-                m.tokensPerSec?.let { Text("%.1f ток/с".format(it), color = p.muted, fontSize = 11.sp, modifier = Modifier.padding(start = 6.dp)) }
             }
         }
     }
@@ -338,13 +371,15 @@ private fun StatusLine(ui: ChatUiState) {
 }
 
 @Composable
-private fun InputBar(busy: Boolean, web: Boolean, code: Boolean, onSend: (String) -> Unit, onStop: () -> Unit) {
+private fun InputBar(onFolder: () -> Unit, folderActive: Boolean, busy: Boolean, web: Boolean, code: Boolean, onSend: (String) -> Unit, onStop: () -> Unit) {
     val p = LocalPulse.current
     var text by rememberSaveable { mutableStateOf("") }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
+        PillIcon(Icons.Outlined.Folder, "Репозиторий", active = folderActive, onClick = onFolder)
+        Spacer(Modifier.width(8.dp))
         Box(
             Modifier
                 .weight(1f)

@@ -42,6 +42,11 @@ object Catalog {
             "$HF/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
         ),
         CatalogModel(
+            "qwen25-15b-abl", "Qwen2.5 1.5B без цензуры", "≈ 0.9 ГБ",
+            "Abliterated-версия: без встроенных отказов модели. Только для себя.",
+            "$HF/Triangle104/Qwen2.5-1.5B-Instruct-abliterated-Q4_K_S-GGUF/resolve/main/qwen2.5-1.5b-instruct-abliterated-q4_k_s.gguf",
+        ),
+        CatalogModel(
             "qwen25-coder-15b", "Qwen2.5 Coder 1.5B", "≈ 1.1 ГБ",
             "Для режима codProd: пишет и чинит код (Kotlin, Python, JS, C++…).",
             "$HF/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",

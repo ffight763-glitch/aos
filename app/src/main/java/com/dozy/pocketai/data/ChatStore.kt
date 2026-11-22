@@ -17,6 +17,8 @@ data class Message(
     val text: String,
     val webContext: String? = null, // search results fed to the model with this user message
     val sources: List<WebSource> = emptyList(),
+    val repoContext: String? = null,         // attached repository files sent with this message
+    val repoFiles: List<String> = emptyList(),
     val tokensPerSec: Float? = null,
 )
 

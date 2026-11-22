@@ -21,7 +21,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -36,6 +38,8 @@ import com.dozy.pocketai.ui.ChatScreen
 import com.dozy.pocketai.ui.ChatViewModel
 import com.dozy.pocketai.ui.DockItem
 import com.dozy.pocketai.ui.LocalPulse
+import com.dozy.pocketai.ui.LocalRunInTerminal
+import com.dozy.pocketai.ui.TerminalScreen
 import com.dozy.pocketai.ui.ModelsScreen
 import com.dozy.pocketai.ui.PocketTheme
 import com.dozy.pocketai.ui.SettingsScreen
@@ -61,10 +65,13 @@ private fun Shell(vm: ChatViewModel) {
     BackHandler(enabled = tab != 0) { tab = 0 }
     Column(Modifier.fillMaxSize().background(p.bg).imePadding()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            when (tab) {
-                1 -> ModelsScreen(vm)
-                2 -> SettingsScreen(vm)
-                else -> ChatScreen(vm, openModels = { tab = 1 })
+            CompositionLocalProvider(LocalRunInTerminal provides { cmd -> vm.terminal.run(cmd); tab = 2 }) {
+                when (tab) {
+                    1 -> ModelsScreen(vm)
+                    2 -> TerminalScreen(vm.terminal)
+                    3 -> SettingsScreen(vm)
+                    else -> ChatScreen(vm, openModels = { tab = 1 }, openSettings = { tab = 3 })
+                }
             }
         }
         // bottom dock (Pulse style), hidden while the keyboard is open
@@ -78,7 +85,8 @@ private fun Shell(vm: ChatViewModel) {
         ) {
             DockItem(Icons.Outlined.ChatBubbleOutline, "Чат", tab == 0, Modifier.weight(1f)) { tab = 0 }
             DockItem(Icons.Outlined.Memory, "Модели", tab == 1, Modifier.weight(1f)) { tab = 1 }
-            DockItem(Icons.Outlined.Tune, "Настройки", tab == 2, Modifier.weight(1f)) { tab = 2 }
+            DockItem(Icons.Outlined.Terminal, "Терминал", tab == 2, Modifier.weight(1f)) { tab = 2 }
+            DockItem(Icons.Outlined.Tune, "Настройки", tab == 3, Modifier.weight(1f)) { tab = 3 }
         }
     }
 }

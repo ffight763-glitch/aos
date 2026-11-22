@@ -33,12 +33,18 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/** Sends a command to the Terminal tab (provided by the app shell). */
+val LocalRunInTerminal = androidx.compose.runtime.staticCompositionLocalOf<((String) -> Unit)?> { null }
+
+private val shellLangs = setOf("bash", "sh", "shell", "zsh", "console", "terminal")
+
 /** Small Markdown renderer: code fences, headings, bullet lists, **bold**, *italic*, `code`. */
 @Composable
 fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
     val p = LocalPulse.current
     val blocks = splitBlocks(text)
     val clipboard = LocalClipboardManager.current
+    val runInTerminal = LocalRunInTerminal.current
     SelectionContainer(modifier) {
         Column {
             blocks.forEachIndexed { i, b ->
@@ -53,6 +59,12 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(b.lang.ifEmpty { "код" }, color = p.muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            if (runInTerminal != null && b.lang.lowercase() in shellLangs) Row(
+                                Modifier.clip(RoundedCornerShape(50)).clickable {
+                                    runInTerminal(b.code.lines().joinToString("\n") { it.removePrefix("$ ") })
+                                }.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) { Text("▶ В терминал", color = p.ink, fontSize = 11.sp) }
                             Row(
                                 Modifier.clip(RoundedCornerShape(50)).clickable { clipboard.setText(AnnotatedString(b.code)) }
                                     .padding(horizontal = 10.dp, vertical = 6.dp),

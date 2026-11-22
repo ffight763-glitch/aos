@@ -42,6 +42,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val engine = pocket.engine
     val models = pocket.models
     val updater = pocket.updater
+    val github = pocket.github
+    val terminal = pocket.terminal
 
     private val _settings = MutableStateFlow(pocket.settings.load())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
@@ -161,6 +163,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             setMessages(_ui.value.conversation.messages + userMsg, titleFrom = input)
             val s = _settings.value
             try {
+                val att = github.state.value.attachment
+                if (att != null && att.files.isNotEmpty()) {
+                    _ui.update { it.copy(phase = Phase.Searching, status = "Читаю файлы ${att.repo.fullName}…") }
+                    // ~3 chars per token; leave room for history and the answer
+                    val budget = ((engine.contextSize() - s.maxTokens) * 2).coerceIn(2_000, 24_000)
+                    val ctx = github.buildContext(att, budget)
+                    userMsg = userMsg.copy(repoContext = ctx, repoFiles = att.files.sorted())
+                    replaceLast(userMsg)
+                }
                 if (useWeb) {
                     _ui.update { it.copy(phase = Phase.Searching, status = "Ищу в интернете…") }
                     val ctx = WebSearch.buildContext(input, s.webResults, s.webCharsPerPage)
@@ -214,9 +225,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val turns = mutableListOf(ChatTurn("system", system))
         msgs.forEachIndexed { i, m ->
             val isLast = i == msgs.lastIndex
-            val content = if (m.role == "user" && isLast && m.webContext != null) {
-                "Результаты поиска в интернете:\n\n${m.webContext}\n\n" +
-                    "Используя эти результаты (ссылайся на номера источников вида [1]), ответь на вопрос: ${m.text}"
+            val content = if (m.role == "user" && isLast && (m.webContext != null || m.repoContext != null)) {
+                buildString {
+                    m.repoContext?.let { append(it).append("\n\n") }
+                    m.webContext?.let {
+                        append("Результаты поиска в интернете:\n\n").append(it)
+                            .append("\n\nИспользуя эти результаты (ссылайся на номера источников вида [1]), ответь.\n\n")
+                    }
+                    append("Вопрос: ").append(m.text)
+                }
             } else if (m.role == "assistant") {
                 stripThinking(m.text)
             } else m.text

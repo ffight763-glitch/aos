@@ -2,6 +2,8 @@ package com.dozy.pocketai
 
 import android.app.Application
 import com.dozy.pocketai.data.ChatStore
+import com.dozy.pocketai.data.GitHub
+import com.dozy.pocketai.data.Terminal
 import com.dozy.pocketai.data.ModelRepository
 import com.dozy.pocketai.data.SettingsStore
 import com.dozy.pocketai.data.Updater
@@ -17,6 +19,8 @@ class PocketApp : Application() {
     lateinit var settings: SettingsStore
     lateinit var chats: ChatStore
     lateinit var updater: Updater
+    lateinit var github: GitHub
+    lateinit var terminal: Terminal
 
     override fun onCreate() {
         super.onCreate()
@@ -26,5 +30,7 @@ class PocketApp : Application() {
         chats = ChatStore(this)
         updater = Updater(this, appScope)
         updater.check(silent = true)
+        github = GitHub(this)
+        terminal = Terminal(this, appScope)
     }
 }

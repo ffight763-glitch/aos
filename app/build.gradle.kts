@@ -20,6 +20,8 @@ android {
         versionCode = appVersionCode
         versionName = appVersionName
         // where OTA updates are looked up (GitHub Releases); CI passes the repo it builds in
+        // OAuth App client id for "Sign in with GitHub" (device flow, no secret needed)
+        buildConfigField("String", "GH_CLIENT_ID", "\"${System.getenv("GH_CLIENT_ID") ?: ""}\"")
         buildConfigField("String", "UPDATE_REPO", "\"${System.getenv("GITHUB_REPOSITORY") ?: "dozyFJ/PocketAI"}\"")
 
         ndk { abiFilters += listOf("arm64-v8a") }

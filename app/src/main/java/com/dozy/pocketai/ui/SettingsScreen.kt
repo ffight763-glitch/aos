@@ -45,6 +45,9 @@ fun SettingsScreen(vm: ChatViewModel) {
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            SectionHeading("GitHub")
+            GitHubSection(vm.github)
+
             SectionHeading("Обновления")
             UpdateSection(vm.updater)
 

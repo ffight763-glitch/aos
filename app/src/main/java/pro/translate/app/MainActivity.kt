@@ -37,11 +37,12 @@ class MainActivity : ComponentActivity() {
                         NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                             listOf(
                                 "Перевод" to Icons.Default.Translate,
+                                "Диалог" to Icons.Default.Forum,
                                 "Камера" to Icons.Default.PhotoCamera,
                                 "История" to Icons.Default.History,
                                 "Ещё" to Icons.Default.Tune,
                             ).forEachIndexed { i, (label, icon) ->
-                                NavigationBarItem(tab == i, { tab = i }, { Icon(icon, label) }, label = { Text(label) })
+                                NavigationBarItem(tab == i, { tab = i }, { Icon(icon, label) }, label = { Text(label, maxLines = 1) }, alwaysShowLabel = false)
                             }
                         }
                     }
@@ -49,8 +50,9 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.fillMaxSize().padding(pad)) {
                         when (tab) {
                             0 -> TranslateScreen(vm)
-                            1 -> CameraScreen(vm) { tab = 0 }
-                            2 -> HistoryScreen(vm) { tab = 0 }
+                            1 -> DialogueScreen(vm)
+                            2 -> CameraScreen(vm) { tab = 0 }
+                            3 -> HistoryScreen(vm) { tab = 0 }
                             else -> ModelsScreen(vm, update) { scope.launch { checkForUpdate(ctx, update, manual = true) } }
                         }
                     }

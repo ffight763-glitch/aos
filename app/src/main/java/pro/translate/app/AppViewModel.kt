@@ -153,6 +153,59 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         downloaded = engine.downloaded()
     }
 
+    // ---- dialogue ----
+    data class DMsg(val id: Long, val mine: Boolean, val original: String, val translated: String?, val failed: Boolean = false)
+
+    private fun defaultMe(): String {
+        val sys = java.util.Locale.getDefault().language
+        return if (Languages.all.any { it.code == sys }) sys else TranslateLanguage.RUSSIAN
+    }
+    var dMe by mutableStateOf(prefs.getString("dme", null) ?: defaultMe())
+        private set
+    var dThem by mutableStateOf(prefs.getString("dthem", null) ?: if (defaultMe() == "en") "de" else "en")
+        private set
+    /** "vertical" = top/bottom (other person's half faces them), "horizontal" = left/right */
+    var dSplit by mutableStateOf(prefs.getString("dsplit", "vertical")!!)
+        private set
+    var dFlip by mutableStateOf(prefs.getBoolean("dflip", true))
+        private set
+    var dAutoSpeak by mutableStateOf(prefs.getBoolean("dspeak", true))
+        private set
+    val dMsgs = androidx.compose.runtime.mutableStateListOf<DMsg>()
+
+    fun setDLang(mine: Boolean, code: String) {
+        if (mine) dMe = code else dThem = code
+        prefs.edit().putString("dme", dMe).putString("dthem", dThem).apply()
+    }
+    fun swapDLangs() { val a = dMe; dMe = dThem; dThem = a; prefs.edit().putString("dme", dMe).putString("dthem", dThem).apply() }
+    fun toggleSplit() {
+        dSplit = if (dSplit == "vertical") "horizontal" else "vertical"
+        dFlip = dSplit == "vertical"
+        prefs.edit().putString("dsplit", dSplit).putBoolean("dflip", dFlip).apply()
+    }
+    fun toggleFlip() { dFlip = !dFlip; prefs.edit().putBoolean("dflip", dFlip).apply() }
+    fun toggleAutoSpeak() { dAutoSpeak = !dAutoSpeak; prefs.edit().putBoolean("dspeak", dAutoSpeak).apply() }
+    fun clearDialogue() = dMsgs.clear()
+
+    fun dSend(mine: Boolean, text: String) {
+        val t = text.trim(); if (t.isEmpty()) return
+        val id = System.nanoTime()
+        val src = if (mine) dMe else dThem
+        val dst = if (mine) dThem else dMe
+        dMsgs += DMsg(id, mine, t, null)
+        viewModelScope.launch {
+            val res = try { engine.translate(t, src, dst) } catch (e: Exception) { null }
+            val i = dMsgs.indexOfFirst { it.id == id }
+            if (i >= 0) dMsgs[i] = dMsgs[i].copy(translated = res, failed = res == null)
+            if (res != null) {
+                history.add(src, dst, t, res)
+                if (dAutoSpeak) speaker.speak(res, Languages.locale(dst))
+            }
+        }
+    }
+
+    fun dRetry(m: DMsg) { dMsgs.removeAll { it.id == m.id }; dSend(m.mine, m.original) }
+
     override fun onCleared() {
         engine.close(); speaker.shutdown(); ocr.close()
     }

@@ -1,6 +1,14 @@
 package com.dozy.pocketai.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -30,25 +38,40 @@ import androidx.compose.ui.unit.sp
 fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
     val p = LocalPulse.current
     val blocks = splitBlocks(text)
+    val clipboard = LocalClipboardManager.current
     SelectionContainer(modifier) {
         Column {
             blocks.forEachIndexed { i, b ->
                 if (i > 0) Spacer(Modifier.height(6.dp))
                 when (b) {
-                    is Block.Code -> Text(
-                        b.code,
-                        color = p.ink,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(p.inset)
-                            .horizontalScroll(rememberScrollState())
-                            .padding(10.dp),
-                        softWrap = false,
-                    )
+                    is Block.Code -> Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(p.inset),
+                    ) {
+                        // header: language + copy, like a code block in a desktop chat
+                        Row(
+                            Modifier.fillMaxWidth().background(p.bar).padding(start = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(b.lang.ifEmpty { "код" }, color = p.muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            Row(
+                                Modifier.clip(RoundedCornerShape(50)).clickable { clipboard.setText(AnnotatedString(b.code)) }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Outlined.ContentCopy, null, tint = p.muted, modifier = Modifier.size(14.dp))
+                                Text(" Копировать", color = p.muted, fontSize = 11.sp)
+                            }
+                        }
+                        Text(
+                            b.code,
+                            color = p.ink,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                            modifier = Modifier.horizontalScroll(rememberScrollState()).padding(10.dp),
+                            softWrap = false,
+                        )
+                    }
                     is Block.Para -> Text(inline(b.text, p), color = color, fontSize = 15.sp, lineHeight = 21.sp)
                 }
             }
@@ -57,7 +80,7 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
 }
 
 private sealed interface Block {
-    data class Code(val code: String) : Block
+    data class Code(val lang: String, val code: String) : Block
     data class Para(val text: String) : Block
 }
 
@@ -67,8 +90,10 @@ private fun splitBlocks(text: String): List<Block> {
     parts.forEachIndexed { i, part ->
         if (i % 2 == 1) {
             // inside a fence: drop the language tag on the first line
-            val code = part.substringAfter('\n', part).trimEnd()
-            if (code.isNotEmpty()) out += Block.Code(code)
+            val first = part.substringBefore('\n')
+            val hasLang = part.contains('\n') && first.isNotBlank() && !first.trim().contains(' ')
+            val code = (if (hasLang) part.substringAfter('\n') else part.removePrefix("\n")).trimEnd()
+            if (code.isNotEmpty()) out += Block.Code(if (hasLang) first.trim() else "", code)
         } else {
             part.split(Regex("\n{2,}")).map { it.trim('\n') }.filter { it.isNotBlank() }.forEach { out += Block.Para(it) }
         }

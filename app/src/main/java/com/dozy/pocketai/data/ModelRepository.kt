@@ -42,6 +42,11 @@ object Catalog {
             "$HF/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
         ),
         CatalogModel(
+            "qwen25-coder-15b", "Qwen2.5 Coder 1.5B", "≈ 1.1 ГБ",
+            "Для режима codProd: пишет и чинит код (Kotlin, Python, JS, C++…).",
+            "$HF/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+        ),
+        CatalogModel(
             "llama32-1b", "Llama 3.2 1B Instruct", "≈ 0.8 ГБ",
             "Модель Meta, быстрая, лучше всего на английском.",
             "$HF/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",

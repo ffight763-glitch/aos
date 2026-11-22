@@ -32,6 +32,7 @@ data class ChatUiState(
     val status: String? = null,
     val modelName: String? = null,
     val webEnabled: Boolean = false,
+    val codeMode: Boolean = false,
     val streaming: String = "",
     val error: String? = null,
 )
@@ -105,6 +106,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun toggleWeb() = _ui.update { it.copy(webEnabled = !it.webEnabled) }
+    fun toggleCode() = _ui.update { it.copy(codeMode = !it.codeMode) }
     fun dismissError() = _ui.update { it.copy(error = null) }
 
     // ---------- chats ----------
@@ -152,6 +154,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val useWeb = _ui.value.webEnabled
+        val code = _ui.value.codeMode
         job = viewModelScope.launch {
             var userMsg = Message(role = "user", text = input)
             setMessages(_ui.value.conversation.messages + userMsg, titleFrom = input)
@@ -169,13 +172,17 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 _ui.update { it.copy(phase = Phase.Thinking, status = "Читаю контекст…") }
-                val turns = buildTurns(s)
-                val prompt = engine.buildPrompt(turns, reserve = s.maxTokens + 16)
+                // codProd: precise and long enough for whole files
+                val gen = if (code) GenParams(
+                    maxOf(s.maxTokens, 1536), minOf(s.temperature, 0.2f), 0.9f, 40, 1.05f,
+                ) else GenParams(s.maxTokens, s.temperature, s.topP, s.topK, s.repeatPenalty)
+                val turns = buildTurns(s, code)
+                val prompt = engine.buildPrompt(turns, reserve = gen.maxTokens + 16)
 
                 val out = StringBuilder()
                 var count = 0
                 var startedAt = 0L
-                engine.generate(prompt, GenParams(s.maxTokens, s.temperature, s.topP, s.topK, s.repeatPenalty))
+                engine.generate(prompt, gen)
                     .collect { chunk ->
                         if (count == 0) {
                             startedAt = System.nanoTime()
@@ -199,10 +206,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun buildTurns(s: AppSettings): List<ChatTurn> {
+    private fun buildTurns(s: AppSettings, code: Boolean): List<ChatTurn> {
         val msgs = _ui.value.conversation.messages
         val date = SimpleDateFormat("d MMMM yyyy, EEEE", Locale("ru")).format(Date())
-        val system = s.systemPrompt + "\nСегодня $date."
+        val system = (if (code) CODPROD_SYSTEM else s.systemPrompt) + "\nСегодня $date."
         val turns = mutableListOf(ChatTurn("system", system))
         msgs.forEachIndexed { i, m ->
             val isLast = i == msgs.lastIndex
@@ -234,6 +241,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     companion object {
+        /** codProd — the coding mode that can be switched on in any chat. */
+        const val CODPROD_SYSTEM =
+            "Ты — codProd, опытный программист-ассистент внутри PocketAI. " +
+                "Пиши рабочий, полный код без заглушек и «...». Каждый блок кода оформляй в ```язык. " +
+                "Сначала коротко: что делаем; потом код; в конце — как запустить или проверить. " +
+                "Если просят исправить ошибку — назови причину и покажи исправленный фрагмент. " +
+                "Объясняй на языке пользователя, комментарии в коде — кратко."
+
         /** Reasoning models (Qwen3, DeepSeek-R1) emit <think>…</think>; it is not sent back as history. */
         fun stripThinking(t: String): String =
             t.replace(Regex("(?s)<think>.*?</think>"), "").replace(Regex("(?s)^.*</think>"), "").trim()

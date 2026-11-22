@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Language
@@ -94,9 +95,10 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit) {
         Column(Modifier.fillMaxSize().background(p.bg)) {
             PulseHeader(
                 title = if (ui.conversation.messages.isEmpty()) "PocketAI" else ui.conversation.title,
-                subtitle = ui.modelName ?: "Модель не загружена",
+                subtitle = (if (ui.codeMode) "codProd · " else "") + (ui.modelName ?: "Модель не загружена"),
                 leading = { PillIcon(Icons.Outlined.Menu, "Чаты", size = 38.dp) { scope.launch { drawer.open() } } },
             ) {
+                PillIcon(Icons.Outlined.Code, "codProd", active = ui.codeMode, size = 38.dp) { vm.toggleCode() }
                 PillIcon(Icons.Outlined.Language, "Интернет", active = ui.webEnabled, size = 38.dp) { vm.toggleWeb() }
                 PillIcon(Icons.Outlined.Add, "Новый чат", primary = true) { vm.newChat() }
             }
@@ -116,7 +118,7 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit) {
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (ui.conversation.messages.isEmpty() && ui.streaming.isEmpty() && ui.phase == Phase.Idle) {
-                    EmptyState(loaded = ui.modelName != null, web = ui.webEnabled, openModels = openModels, onPrompt = vm::send)
+                    EmptyState(loaded = ui.modelName != null, web = ui.webEnabled, code = ui.codeMode, openModels = openModels, onPrompt = vm::send)
                 } else {
                     Messages(ui, onRegenerate = vm::regenerate)
                 }
@@ -126,6 +128,7 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit) {
             InputBar(
                 busy = ui.phase != Phase.Idle,
                 web = ui.webEnabled,
+                code = ui.codeMode,
                 onSend = vm::send,
                 onStop = vm::stop,
             )
@@ -172,7 +175,7 @@ private fun ChatDrawer(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EmptyState(loaded: Boolean, web: Boolean, openModels: () -> Unit, onPrompt: (String) -> Unit) {
+private fun EmptyState(loaded: Boolean, web: Boolean, code: Boolean, openModels: () -> Unit, onPrompt: (String) -> Unit) {
     val p = LocalPulse.current
     Column(
         Modifier.fillMaxSize().padding(24.dp),
@@ -180,13 +183,14 @@ private fun EmptyState(loaded: Boolean, web: Boolean, openModels: () -> Unit, on
         verticalArrangement = Arrangement.Center,
     ) {
         Box(Modifier.size(76.dp).clip(CircleShape).background(p.card).border(1.dp, p.gridLine, CircleShape), contentAlignment = Alignment.Center) {
-            Icon(Icons.Outlined.AutoAwesome, null, tint = p.ink, modifier = Modifier.size(36.dp))
+            Icon(if (code) Icons.Outlined.Code else Icons.Outlined.AutoAwesome, null, tint = p.ink, modifier = Modifier.size(36.dp))
         }
         Spacer(Modifier.size(16.dp))
-        Text("ИИ прямо в телефоне", color = p.ink, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text(if (code) "codProd" else "ИИ прямо в телефоне", color = p.ink, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.size(6.dp))
         Text(
-            if (loaded) "Модель работает офлайн. Включи 🌐, чтобы она искала ответы в интернете."
+            if (code) "Режим программиста: пишет, объясняет и чинит код. Лучше всего — с моделью Qwen2.5 Coder."
+            else if (loaded) "Модель работает офлайн. Включи 🌐, чтобы она искала ответы в интернете."
             else "Скачай модель — она будет работать без интернета и без серверов.",
             color = p.muted, fontSize = 14.sp, textAlign = TextAlign.Center,
         )
@@ -194,7 +198,8 @@ private fun EmptyState(loaded: Boolean, web: Boolean, openModels: () -> Unit, on
         if (!loaded) {
             PillButton("Выбрать модель", primary = true, icon = Icons.Outlined.Memory, onClick = openModels)
         } else {
-            val prompts = if (web) listOf("Какие новости сегодня?", "Курс доллара к гривне", "Погода в Киеве на завтра")
+            val prompts = if (code) listOf("Kotlin: функция проверки email", "Найди ошибку в моём коде", "Bash-скрипт бэкапа папки")
+            else if (web) listOf("Какие новости сегодня?", "Курс доллара к гривне", "Погода в Киеве на завтра")
             else listOf("Объясни, как работает нейросеть", "Напиши короткий стих про зиму", "Придумай идею для приложения")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 prompts.forEach { PillButton(it) { onPrompt(it) } }
@@ -331,7 +336,7 @@ private fun StatusLine(ui: ChatUiState) {
 }
 
 @Composable
-private fun InputBar(busy: Boolean, web: Boolean, onSend: (String) -> Unit, onStop: () -> Unit) {
+private fun InputBar(busy: Boolean, web: Boolean, code: Boolean, onSend: (String) -> Unit, onStop: () -> Unit) {
     val p = LocalPulse.current
     var text by rememberSaveable { mutableStateOf("") }
     Row(
@@ -348,13 +353,17 @@ private fun InputBar(busy: Boolean, web: Boolean, onSend: (String) -> Unit, onSt
                 .padding(horizontal = 16.dp, vertical = 11.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
-            if (text.isEmpty()) Text(if (web) "Спросить с поиском в интернете…" else "Сообщение…", color = p.muted, fontSize = 15.sp)
+            if (text.isEmpty()) Text(when {
+                code -> "codProd: задача или код…"
+                web -> "Спросить с поиском в интернете…"
+                else -> "Сообщение…"
+            }, color = p.muted, fontSize = 15.sp)
             BasicTextField(
                 value = text,
                 onValueChange = { text = it },
                 textStyle = TextStyle(color = p.ink, fontSize = 15.sp, lineHeight = 21.sp),
                 cursorBrush = SolidColor(p.ink),
-                maxLines = 6,
+                maxLines = if (code) 12 else 6,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

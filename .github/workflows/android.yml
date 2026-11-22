@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, pocketai]
   workflow_dispatch:
 
 permissions:
@@ -56,8 +56,11 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.${{ github.run_number }}
+          tag_name: pocketai-v0.1.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
           name: PocketAI 0.1.${{ github.run_number }}
           body: "APK для Android (arm64). Скачай `PocketAI-0.1.${{ github.run_number }}.apk` ниже и установи."
           files: out/*.apk
-          make_latest: true
+          # outside the PocketAI repo (temporary build host) never touch that repo's "latest" release
+          prerelease: ${{ github.repository != 'dozyFJ/PocketAI' }}
+          make_latest: ${{ github.repository == 'dozyFJ/PocketAI' }}

@@ -235,13 +235,22 @@ class ControlCenter(private val act: Activity, private val p: Palette, private v
         addView(notifBox)
     }
 
-    // No dimmed backdrop: the panel is a menu that opens under the top bar; this transparent layer only catches taps to close it.
-    private val scrim = View(act).apply { setOnClickListener { close() } }
+    // Bottom sheet: a dim layer over the home; a tap on it closes the Control Center.
+    private val scrim = View(act).apply { setBackgroundColor(0x8C000000.toInt()); setOnClickListener { close() } }
+
+    /** Grab handle on top of the sheet: drag it down to close (the sheet follows the finger). */
+    private val handle = FrameLayout(act).apply {
+        addView(View(act).apply { background = act.shape((p.sub and 0xFFFFFF) or 0x99000000.toInt(), 3) },
+            FrameLayout.LayoutParams(dp(42), dp(5), Gravity.CENTER))
+        contentDescription = "Drag down to close"
+    }
 
     private val card = LinearLayout(act).apply {
         orientation = LinearLayout.VERTICAL
-        background = act.frostShape(p, 30)
-        setPadding(dp(16), dp(18), dp(16), dp(18))
+        // Rounded only on top: it is a sheet that rises from the bottom edge.
+        background = act.frostShape(p, 30).apply { val r = dp(30).toFloat(); cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f) }
+        clipToOutline = true; elevation = dp(16).toFloat()
+        setPadding(dp(16), 0, dp(16), dp(18))
         // One fixed size for both panels, so switching Controls/Notifications never makes the card jump.
         minimumHeight = (act.resources.displayMetrics.heightPixels * 0.56f).toInt()
     }
@@ -608,6 +617,26 @@ class ControlCenter(private val act: Activity, private val p: Palette, private v
         }
     }
 
+    // The handle goes on top of everything the card holds (it is built above), and drags the sheet.
+    init {
+        card.addView(handle, 0, LinearLayout.LayoutParams(-1, dp(26)))
+        var y0 = 0f; var t0 = 0L
+        handle.setOnTouchListener { _, e ->
+            val travel = card.height.toFloat().coerceAtLeast(1f)
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { y0 = e.rawY; t0 = e.eventTime; card.animate().cancel() }
+                MotionEvent.ACTION_MOVE -> { val d = (e.rawY - y0).coerceAtLeast(0f); card.translationY = d; scrim.alpha = 1f - (d / travel).coerceIn(0f, 1f) }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val d = e.rawY - y0
+                    val fast = d > dp(40) && d / ((e.eventTime - t0).coerceAtLeast(1)) > 0.9f
+                    if (d > travel * 0.25f || fast) close()
+                    else { card.animate().translationY(0f).setDuration(220).setInterpolator(android.view.animation.DecelerateInterpolator()).start(); scrim.animate().alpha(1f).setDuration(220).start() }
+                }
+            }
+            true
+        }
+    }
+
     fun show(panel: Int = 0, bottom: Boolean = true) {
         // Two sources can ask at the same moment (the top bar and the gesture strip): open only once.
         if (isOpen) { if (!metro) setPanel(panel); return }
@@ -622,17 +651,12 @@ class ControlCenter(private val act: Activity, private val p: Palette, private v
             metroCard.animate().translationY(0f).setDuration(Fx.dur(240)).setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
             return
         }
-        fromBottom = bottom
-        // A fixed, tall card: from the bottom it fills the room above the dock (up to 72% of the screen), never squeezed.
+        // Always a bottom sheet now, wherever it was opened from (top bar, dock plate or gesture strip).
+        fromBottom = true
         val screenH = act.resources.displayMetrics.heightPixels
-        val gap = if (bottom) bottomGap() else 0
-        val h = if (bottom) minOf((screenH * 0.72f).toInt(), screenH - gap - dp(56)) else (screenH * 0.62f).toInt()
-        // Keep the two tile rows and the bottom navigation visible when opened from the top too.
-        val available = screenH - gap - if (bottom) dp(24) else dp(82)
-        val panelHeight = maxOf(h, minOf(dp(540), available)).coerceAtLeast(dp(360))
-        card.layoutParams = FrameLayout.LayoutParams(-1, panelHeight, if (bottom) Gravity.BOTTOM else Gravity.TOP).apply {
-            if (bottom) setMargins(dp(12), 0, dp(12), gap) else setMargins(dp(12), dp(58), dp(12), 0)
-        }
+        val panelHeight = minOf((screenH * 0.8f).toInt(), screenH - dp(64)).coerceAtLeast(dp(420))
+        card.layoutParams = FrameLayout.LayoutParams(-1, panelHeight, Gravity.BOTTOM)
+        card.setPadding(dp(16), 0, dp(16), dp(18) + navInset())
         setPanel(panel)
         refreshTiles(); refreshModes(); refreshNotifs()
         brightnessBar.value = runCatching { Settings.System.getInt(cr, Settings.System.SCREEN_BRIGHTNESS) / 255f }.getOrDefault(0.5f)
@@ -640,8 +664,10 @@ class ControlCenter(private val act: Activity, private val p: Palette, private v
         view.visibility = View.VISIBLE
         onOpenChanged(true)
         // Rises from the bar above the dock (or drops from the top edge): a short slide with a fade.
-        card.alpha = 0f; card.translationY = slide()
-        card.animate().alpha(1f).translationY(0f).setDuration(170).start()
+        card.animate().cancel(); scrim.animate().cancel()
+        card.alpha = 1f; card.translationY = card.layoutParams.height.toFloat(); scrim.alpha = 0f
+        card.animate().translationY(0f).setDuration(Fx.dur(340)).setInterpolator(Fx.settle(act)).start()
+        scrim.animate().alpha(1f).setDuration(Fx.dur(300)).start()
     }
 
     fun close() {
@@ -651,6 +677,11 @@ class ControlCenter(private val act: Activity, private val p: Palette, private v
             metroCard.animate().translationY(-metroCard.height.toFloat()).setDuration(Fx.dur(180)).withEndAction { view.visibility = View.GONE }.start()
             return
         }
-        card.animate().alpha(0f).translationY(slide()).setDuration(130).withEndAction { view.visibility = View.GONE }.start()
+        val travel = card.height.toFloat().coerceAtLeast(1f)
+        val left = (1f - card.translationY / travel).coerceIn(0.25f, 1f)
+        card.animate().cancel()
+        card.animate().translationY(travel).setDuration((Fx.dur(260) * left).toLong()).setInterpolator(android.view.animation.AccelerateInterpolator(1.4f))
+            .withEndAction { view.visibility = View.GONE }.start()
+        scrim.animate().alpha(0f).setDuration((Fx.dur(260) * left).toLong()).start()
     }
 }

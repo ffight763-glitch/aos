@@ -137,6 +137,15 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openSettings: () -> Un
             }
 
             StatusLine(ui)
+            if (ui.webEnabled) Row(
+                Modifier.padding(start = 12.dp, top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("🌐", fontSize = 14.sp)
+                SearchChip("Подробно", !ui.fastSearch) { vm.setFastSearch(false) }
+                SearchChip("⚡ Быстро", ui.fastSearch) { vm.setFastSearch(true) }
+            }
             gh.attachment?.let { a ->
                 Row(
                     Modifier.padding(start = 12.dp, top = 4.dp).clip(RoundedCornerShape(50)).background(p.card)
@@ -160,6 +169,7 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openSettings: () -> Un
                 folderActive = gh.attachment != null,
                 busy = ui.phase != Phase.Idle,
                 web = ui.webEnabled,
+                fast = ui.fastSearch,
                 code = ui.codeMode,
                 onSend = vm::send,
                 onStop = vm::stop,
@@ -371,7 +381,7 @@ private fun StatusLine(ui: ChatUiState) {
 }
 
 @Composable
-private fun InputBar(onFolder: () -> Unit, folderActive: Boolean, busy: Boolean, web: Boolean, code: Boolean, onSend: (String) -> Unit, onStop: () -> Unit) {
+private fun InputBar(onFolder: () -> Unit, folderActive: Boolean, busy: Boolean, web: Boolean, fast: Boolean, code: Boolean, onSend: (String) -> Unit, onStop: () -> Unit) {
     val p = LocalPulse.current
     var text by rememberSaveable { mutableStateOf("") }
     Row(
@@ -392,6 +402,7 @@ private fun InputBar(onFolder: () -> Unit, folderActive: Boolean, busy: Boolean,
         ) {
             if (text.isEmpty()) Text(when {
                 code -> "codProd: задача или код…"
+                web && fast -> "⚡ Быстрый вопрос…"
                 web -> "Спросить с поиском в интернете…"
                 else -> "Сообщение…"
             }, color = p.muted, fontSize = 15.sp)
@@ -414,6 +425,17 @@ private fun InputBar(onFolder: () -> Unit, folderActive: Boolean, busy: Boolean,
             }
         }
     }
+}
+
+@Composable
+private fun SearchChip(label: String, on: Boolean, onClick: () -> Unit) {
+    val p = LocalPulse.current
+    Text(
+        label, color = if (on) p.onAccent else p.ink, fontSize = 12.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+        modifier = Modifier.clip(RoundedCornerShape(50)).background(if (on) p.accent else p.card)
+            .border(1.dp, if (on) p.accent else p.gridLine, RoundedCornerShape(50))
+            .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 5.dp),
+    )
 }
 
 private fun splitThinking(t: String): Pair<String?, String> {

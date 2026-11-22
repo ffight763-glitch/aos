@@ -33,6 +33,7 @@ data class ChatUiState(
     val modelName: String? = null,
     val webEnabled: Boolean = false,
     val codeMode: Boolean = false,
+    val fastSearch: Boolean = false,
     val streaming: String = "",
     val error: String? = null,
 )
@@ -109,6 +110,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun toggleWeb() = _ui.update { it.copy(webEnabled = !it.webEnabled) }
+    fun setFastSearch(on: Boolean) = _ui.update { it.copy(fastSearch = on) }
     fun toggleCode() = _ui.update { it.copy(codeMode = !it.codeMode) }
     fun dismissError() = _ui.update { it.copy(error = null) }
 
@@ -158,6 +160,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
         val useWeb = _ui.value.webEnabled
         val code = _ui.value.codeMode
+        val fast = useWeb && _ui.value.fastSearch
         job = viewModelScope.launch {
             var userMsg = Message(role = "user", text = input)
             setMessages(_ui.value.conversation.messages + userMsg, titleFrom = input)
@@ -173,8 +176,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     replaceLast(userMsg)
                 }
                 if (useWeb) {
-                    _ui.update { it.copy(phase = Phase.Searching, status = "Ищу в интернете…") }
-                    val ctx = WebSearch.buildContext(input, s.webResults, s.webCharsPerPage)
+                    _ui.update { it.copy(phase = Phase.Searching, status = if (fast) "⚡ Быстрый поиск…" else "Ищу в интернете…") }
+                    val ctx = if (fast) WebSearch.quickContext(input)
+                    else WebSearch.buildContext(input, s.webResults, s.webCharsPerPage)
                     if (ctx.text.isBlank()) {
                         _ui.update { it.copy(status = "Ничего не найдено — отвечаю без интернета") }
                     } else {
@@ -187,8 +191,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 // codProd: precise and long enough for whole files
                 val gen = if (code) GenParams(
                     maxOf(s.maxTokens, 1536), minOf(s.temperature, 0.2f), 0.9f, 40, 1.05f,
+                ) else if (fast) GenParams(
+                    minOf(s.maxTokens, 320), minOf(s.temperature, 0.4f), s.topP, s.topK, s.repeatPenalty,
                 ) else GenParams(s.maxTokens, s.temperature, s.topP, s.topK, s.repeatPenalty)
-                val turns = buildTurns(s, code)
+                val turns = buildTurns(s, code, fast)
                 val prompt = engine.buildPrompt(turns, reserve = gen.maxTokens + 16)
 
                 val out = StringBuilder()
@@ -218,7 +224,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun buildTurns(s: AppSettings, code: Boolean): List<ChatTurn> {
+    private fun buildTurns(s: AppSettings, code: Boolean, fast: Boolean = false): List<ChatTurn> {
         val msgs = _ui.value.conversation.messages
         val date = SimpleDateFormat("d MMMM yyyy, EEEE", Locale("ru")).format(Date())
         val system = (if (code) CODPROD_SYSTEM else s.systemPrompt) + "\nСегодня $date."
@@ -230,7 +236,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     m.repoContext?.let { append(it).append("\n\n") }
                     m.webContext?.let {
                         append("Результаты поиска в интернете:\n\n").append(it)
-                            .append("\n\nИспользуя эти результаты (ссылайся на номера источников вида [1]), ответь.\n\n")
+                            .append("\n\nИспользуя эти результаты (ссылайся на номера источников вида [1]), ответь.")
+                            // the hint goes into the message, not the system prompt, so the KV cache stays valid
+                            .append(if (fast) " Кратко, 2–4 предложения, сразу по сути.\n\n" else "\n\n")
                     }
                     append("Вопрос: ").append(m.text)
                 }

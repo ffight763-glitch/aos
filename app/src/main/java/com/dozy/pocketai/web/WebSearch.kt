@@ -28,16 +28,34 @@ object WebSearch {
         "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** query → (time, hits); repeated questions are answered without a network round-trip */
+    private val cache = object : LinkedHashMap<String, Pair<Long, List<SearchHit>>>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, List<SearchHit>>>) = size > 40
+    }
+    private const val CACHE_MS = 10 * 60 * 1000L
+
     suspend fun search(query: String, limit: Int = 5): List<SearchHit> = withContext(Dispatchers.IO) {
+        val key = query.trim().lowercase() + "#" + limit
+        synchronized(cache) { cache[key] }?.let { (t, hits) -> if (System.currentTimeMillis() - t < CACHE_MS) return@withContext hits }
         val ddg = runCatching { duckDuckGo(query, limit) }.getOrDefault(emptyList())
-        ddg.ifEmpty { runCatching { wikipedia(query, limit) }.getOrDefault(emptyList()) }
+        val hits = ddg.ifEmpty { runCatching { wikipedia(query, limit) }.getOrDefault(emptyList()) }
+        if (hits.isNotEmpty()) synchronized(cache) { cache[key] = System.currentTimeMillis() to hits }
+        hits
+    }
+
+    /** ⚡ fast mode: search snippets only, no page downloads. */
+    suspend fun quickContext(query: String, results: Int = 6): WebContext {
+        val hits = search(query, results)
+        if (hits.isEmpty()) return WebContext("", emptyList())
+        val text = hits.mapIndexed { i, h -> "[${i + 1}] ${h.title} — ${h.url}\n${h.snippet}" }.joinToString("\n\n")
+        return WebContext(text, hits.map { WebSource(it.title, it.url) })
     }
 
     private fun duckDuckGo(query: String, limit: Int): List<SearchHit> {
         val doc = Jsoup.connect("https://html.duckduckgo.com/html/")
             .userAgent(UA)
             .data("q", query)
-            .timeout(10_000)
+            .timeout(7_000)
             .post()
         return doc.select("div.result").asSequence()
             .filterNot { it.hasClass("result--ad") }
@@ -79,7 +97,7 @@ object WebSearch {
     /** Readable main text of a page, trimmed to [maxChars]. */
     suspend fun fetchText(url: String, maxChars: Int): String = withContext(Dispatchers.IO) {
         runCatching {
-            val doc = Jsoup.connect(url).userAgent(UA).timeout(8_000).maxBodySize(2_000_000)
+            val doc = Jsoup.connect(url).userAgent(UA).timeout(6_000).maxBodySize(2_000_000)
                 .followRedirects(true).get()
             doc.select("script, style, noscript, nav, header, footer, aside, form, iframe, svg").remove()
             val root = doc.selectFirst("article") ?: doc.selectFirst("main") ?: doc.body()

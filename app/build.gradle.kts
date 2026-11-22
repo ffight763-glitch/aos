@@ -22,6 +22,7 @@ android {
         // where OTA updates are looked up (GitHub Releases); CI passes the repo it builds in
         // OAuth App client id for "Sign in with GitHub" (device flow, no secret needed)
         buildConfigField("String", "GH_CLIENT_ID", "\"${System.getenv("GH_CLIENT_ID") ?: ""}\"")
+        buildConfigField("String", "GH_CLIENT_SECRET", "\"${System.getenv("GH_CLIENT_SECRET") ?: ""}\"")
         buildConfigField("String", "UPDATE_REPO", "\"${System.getenv("GITHUB_REPOSITORY") ?: "dozyFJ/PocketAI"}\"")
 
         ndk { abiFilters += listOf("arm64-v8a") }
@@ -87,4 +88,5 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.jsoup:jsoup:1.18.3")
+    implementation("androidx.browser:browser:1.8.0")
 }

@@ -6,6 +6,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,9 +56,23 @@ class MainActivity : ComponentActivity() {
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
+        handleOAuth(intent)
         setContent {
             val settings by vm.settings.collectAsStateWithLifecycle()
             PocketTheme(settings.theme) { Shell(vm) }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleOAuth(intent)
+    }
+
+    private fun handleOAuth(intent: android.content.Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "pocketai" && uri.host == "oauth") {
+            intent.data = null
+            lifecycleScope.launch { vm.github.handleRedirect(uri) }
         }
     }
 }

@@ -2,6 +2,7 @@ package com.dozy.pocketai.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,6 +61,11 @@ fun GitHubSection(github: GitHub) {
     var token by remember { mutableStateOf("") }
     var clientId by remember { mutableStateOf(github.clientId) }
     var job by remember { mutableStateOf<Job?>(null) }
+    var secret by remember { mutableStateOf(github.clientSecret) }
+    var advanced by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val loggingIn by github.loggingIn.collectAsState()
+    val loginError by github.loginError.collectAsState()
 
     PulseCard(Modifier.fillMaxWidth()) {
         if (st.login != null) {
@@ -115,12 +121,23 @@ fun GitHubSection(github: GitHub) {
                     PillButton("Назад") { tokenMode = false }
                 }
             }
+            loggingIn -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(16.dp), color = p.ink, strokeWidth = 2.dp)
+                Spacer(Modifier.width(10.dp))
+                Text("Вхожу в GitHub…", color = p.ink, fontSize = 14.sp)
+            }
             else -> {
-                Text("Войди, чтобы подключать свои репозитории к чату — как папки.", color = p.muted, fontSize = 13.sp)
+                Text("Войди, чтобы подключать свои репозитории к чату — как папки. Откроется Chrome, нажми Authorize — и ты снова в приложении.",
+                    color = p.muted, fontSize = 13.sp)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PillButton("Войти через GitHub", primary = true, enabled = !busy) {
-                        busy = true; error = null
+                        error = null
+                        if (github.canBrowserLogin) {
+                            runCatching { github.startBrowserLogin(context) }.onFailure { error = it.message }
+                            return@PillButton
+                        }
+                        busy = true
                         job = scope.launch {
                             runCatching {
                                 val dc = github.startDeviceFlow()
@@ -135,13 +152,19 @@ fun GitHubSection(github: GitHub) {
                     }
                     PillButton("Токен") { tokenMode = true }
                 }
-                Spacer(Modifier.height(12.dp))
-                Text("Client ID OAuth-приложения (github.com/settings/developers, включи Device Flow)", color = p.muted, fontSize = 11.sp)
-                Spacer(Modifier.height(6.dp))
-                Field(clientId, { clientId = it; github.clientId = it }, "Ov23li…")
+                Spacer(Modifier.height(8.dp))
+                Text(if (advanced) "▾ OAuth-приложение" else "▸ OAuth-приложение", color = p.muted, fontSize = 12.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { advanced = !advanced }.padding(vertical = 4.dp))
+                if (advanced) {
+                    Text("github.com/settings/developers → OAuth App, Callback URL: pocketai://oauth", color = p.muted, fontSize = 11.sp)
+                    Spacer(Modifier.height(6.dp))
+                    Field(clientId, { clientId = it; github.clientId = it }, "Client ID")
+                    Spacer(Modifier.height(6.dp))
+                    Field(secret, { secret = it; github.clientSecret = it }, "Client secret", password = true)
+                }
             }
         }
-        error?.let {
+        (error ?: loginError)?.let {
             Spacer(Modifier.height(8.dp))
             Text(it, color = Red, fontSize = 13.sp)
         }

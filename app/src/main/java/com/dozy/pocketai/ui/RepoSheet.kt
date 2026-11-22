@@ -64,7 +64,10 @@ fun RepoSheet(github: GitHub, current: Attachment?, onDone: (Attachment?) -> Uni
                 Text("Войди через GitHub, чтобы подключать свои репо к чату — модель будет видеть выбранные файлы.",
                     color = p.muted, fontSize = 14.sp)
                 Spacer(Modifier.height(14.dp))
-                PillButton("Войти через GitHub", primary = true) { onLogin() }
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                PillButton("Войти через GitHub", primary = true) {
+                    if (github.canBrowserLogin) runCatching { github.startBrowserLogin(ctx) }.onFailure { onLogin() } else onLogin()
+                }
                 return@Column
             }
             val r = repo

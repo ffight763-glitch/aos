@@ -39,6 +39,8 @@ data class GhState(
 
 class GitHubException(message: String) : Exception(message)
 
+const val REDIRECT = "pocketai://oauth"
+
 /**
  * GitHub account + repositories for the chat ("folders" like in Claude):
  * sign-in with the OAuth device flow (or a personal token), list repos,
@@ -58,6 +60,77 @@ class GitHub(context: Context) {
         set(v) = prefs.edit().putString("client_id", v.trim()).apply()
 
     val loggedIn get() = _state.value.token != null
+
+    /** Secret of the same OAuth App; needed by GitHub for the browser flow. */
+    var clientSecret: String
+        get() = prefs.getString("client_secret", null)?.takeIf { it.isNotBlank() } ?: BuildConfig.GH_CLIENT_SECRET
+        set(v) = prefs.edit().putString("client_secret", v.trim()).apply()
+
+    val canBrowserLogin get() = clientId.isNotBlank() && clientSecret.isNotBlank()
+
+    // ---------------- sign-in in the browser (Chrome opens, you tap Authorize, the app gets the token) ----------------
+
+    /** Opens github.com in a Chrome custom tab; GitHub sends the user back to pocketai://oauth. */
+    fun startBrowserLogin(context: Context) {
+        if (!canBrowserLogin) throw GitHubException("Не задан Client ID / Secret OAuth-приложения")
+        val rnd = java.security.SecureRandom()
+        fun token(n: Int) = ByteArray(n).also { rnd.nextBytes(it) }
+            .let { android.util.Base64.encodeToString(it, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP) }
+        val state = token(16)
+        val verifier = token(48)
+        val challenge = java.security.MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray())
+            .let { android.util.Base64.encodeToString(it, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP) }
+        prefs.edit().putString("oauth_state", state).putString("oauth_verifier", verifier).apply()
+        val url = android.net.Uri.parse("https://github.com/login/oauth/authorize").buildUpon()
+            .appendQueryParameter("client_id", clientId)
+            .appendQueryParameter("redirect_uri", REDIRECT)
+            .appendQueryParameter("scope", "repo read:user")
+            .appendQueryParameter("state", state)
+            .appendQueryParameter("code_challenge", challenge)
+            .appendQueryParameter("code_challenge_method", "S256")
+            .appendQueryParameter("allow_signup", "true")
+            .build()
+        runCatching {
+            androidx.browser.customtabs.CustomTabsIntent.Builder().setShowTitle(true).build()
+                .apply { intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK) }
+                .launchUrl(context, url)
+        }.onFailure {
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, url).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    private val _loginError = MutableStateFlow<String?>(null)
+    val loginError: StateFlow<String?> = _loginError.asStateFlow()
+    private val _loggingIn = MutableStateFlow(false)
+    val loggingIn: StateFlow<Boolean> = _loggingIn.asStateFlow()
+
+    /** Called by MainActivity with pocketai://oauth?code=…&state=… */
+    suspend fun handleRedirect(uri: android.net.Uri) {
+        _loginError.value = null
+        val expected = prefs.getString("oauth_state", null)
+        val verifier = prefs.getString("oauth_verifier", null)
+        uri.getQueryParameter("error")?.let { _loginError.value = "GitHub: " + (uri.getQueryParameter("error_description") ?: it); return }
+        val code = uri.getQueryParameter("code") ?: return
+        if (expected == null || uri.getQueryParameter("state") != expected) { _loginError.value = "Вход устарел — нажми «Войти» ещё раз"; return }
+        _loggingIn.value = true
+        try {
+            val o = withContext(Dispatchers.IO) {
+                form(
+                    "https://github.com/login/oauth/access_token",
+                    "client_id" to clientId, "client_secret" to clientSecret, "code" to code,
+                    "redirect_uri" to REDIRECT, "code_verifier" to (verifier ?: ""),
+                )
+            }
+            val t = o["access_token"]?.jsonPrimitive?.content
+                ?: throw GitHubException(o["error_description"]?.jsonPrimitive?.content ?: "GitHub не выдал токен")
+            loginWithToken(t)
+            prefs.edit().remove("oauth_state").remove("oauth_verifier").apply()
+        } catch (e: Exception) {
+            _loginError.value = e.message
+        } finally {
+            _loggingIn.value = false
+        }
+    }
 
     // ---------------- sign-in ----------------
 

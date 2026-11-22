@@ -81,7 +81,8 @@ Java_com_dozy_pocketai_llm_LlamaNative_backendInit(JNIEnv *, jobject) {
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_dozy_pocketai_llm_LlamaNative_load(JNIEnv *env, jobject, jstring jpath, jint n_ctx, jint n_threads) {
+Java_com_dozy_pocketai_llm_LlamaNative_load(JNIEnv *env, jobject, jstring jpath, jint n_ctx, jint n_threads,
+                                            jint n_threads_batch, jboolean kv_q8) {
     const char *path = env->GetStringUTFChars(jpath, nullptr);
     llama_model_params mp = llama_model_default_params();
     mp.n_gpu_layers = 0;
@@ -95,11 +96,39 @@ Java_com_dozy_pocketai_llm_LlamaNative_load(JNIEnv *env, jobject, jstring jpath,
     cp.n_ctx = (uint32_t) ((train > 0 && n_ctx > train) ? train : n_ctx);
     cp.n_batch = 512;
     cp.n_ubatch = 512;
-    cp.n_threads = n_threads;
-    cp.n_threads_batch = n_threads;
+    cp.n_threads = n_threads;              // generation: memory-bound, big cores only
+    cp.n_threads_batch = n_threads_batch;  // prompt reading: compute-bound, all cores
     cp.no_perf = true;
+    // flash attention + 8-bit KV cache: half the memory per token, faster long contexts
+    cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+    if (kv_q8) {
+        cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED; // quantized V cache needs flash attention
+        cp.type_k = GGML_TYPE_Q8_0;
+        cp.type_v = GGML_TYPE_Q8_0;
+    }
     llama_context *ctx = llama_init_from_model(model, cp);
+    if (!ctx && kv_q8) {
+        // model without flash-attention support: fall back to an f16 cache
+        cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+        cp.type_k = GGML_TYPE_F16;
+        cp.type_v = GGML_TYPE_F16;
+        ctx = llama_init_from_model(model, cp);
+    }
     if (!ctx) { LOGE("context init failed"); llama_model_free(model); return 0; }
+
+    // warm-up: touches every weight once (pages the mmap in, repacks Q4_0 for ARM),
+    // so the first real answer starts without a long pause
+    {
+        const llama_vocab *v = llama_model_get_vocab(model);
+        llama_token t = llama_vocab_bos(v);
+        if (t == LLAMA_TOKEN_NULL) t = 0;
+        llama_set_warmup(ctx, true);
+        llama_batch b = llama_batch_get_one(&t, 1);
+        llama_decode(ctx, b);
+        llama_synchronize(ctx);
+        llama_set_warmup(ctx, false);
+        llama_memory_clear(llama_get_memory(ctx), true);
+    }
 
     auto *e = new Engine();
     e->model = model;

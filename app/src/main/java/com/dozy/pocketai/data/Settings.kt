@@ -10,7 +10,8 @@ data class AppSettings(
     val repeatPenalty: Float = 1.1f,
     val maxTokens: Int = 768,
     val contextSize: Int = 4096,
-    val threads: Int = defaultThreads(),
+    val threads: Int = 0, // 0 = auto
+    val kvQ8: Boolean = true,
     val webResults: Int = 3,
     val webCharsPerPage: Int = 1200,
     val lastModel: String? = null,
@@ -21,11 +22,15 @@ data class AppSettings(
             "Ты — PocketAI, полезный ассистент, работающий прямо на телефоне пользователя. " +
                 "Отвечай кратко и по делу, на языке пользователя."
 
-        fun defaultThreads(): Int {
+        /** Generation is memory-bound: 4 threads on 8-core phones beat 8 (little cores stall the rest). */
+        fun autoThreads(): Int {
             val n = Runtime.getRuntime().availableProcessors()
-            return (n - 2).coerceIn(2, 6)
+            return if (n >= 8) 4 else (n / 2).coerceAtLeast(2)
         }
+        /** Reading the prompt is compute-bound: use every core. */
+        fun batchThreads(): Int = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
     }
+    val genThreads get() = if (threads > 0) threads else autoThreads()
 }
 
 class SettingsStore(context: Context) {
@@ -41,7 +46,8 @@ class SettingsStore(context: Context) {
             repeatPenalty = p.getFloat("repeat", d.repeatPenalty),
             maxTokens = p.getInt("max_tokens", d.maxTokens),
             contextSize = p.getInt("ctx", d.contextSize),
-            threads = p.getInt("threads", d.threads),
+            threads = p.getInt("threads2", d.threads),
+            kvQ8 = p.getBoolean("kv_q8", d.kvQ8),
             webResults = p.getInt("web_results", d.webResults),
             webCharsPerPage = p.getInt("web_chars", d.webCharsPerPage),
             lastModel = p.getString("last_model", null),
@@ -58,7 +64,8 @@ class SettingsStore(context: Context) {
             .putFloat("repeat", s.repeatPenalty)
             .putInt("max_tokens", s.maxTokens)
             .putInt("ctx", s.contextSize)
-            .putInt("threads", s.threads)
+            .putInt("threads2", s.threads)
+            .putBoolean("kv_q8", s.kvQ8)
             .putInt("web_results", s.webResults)
             .putInt("web_chars", s.webCharsPerPage)
             .putString("last_model", s.lastModel)

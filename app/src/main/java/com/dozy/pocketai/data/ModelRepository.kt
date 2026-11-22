@@ -23,18 +23,19 @@ data class CatalogModel(
     val fileName get() = url.substringAfterLast('/').substringBefore('?')
 }
 
+/** Q4_0 on purpose: llama.cpp repacks it into ARM dot-product kernels — fastest format on phones. */
 object Catalog {
     private const val HF = "https://huggingface.co"
     val models = listOf(
         CatalogModel(
             "qwen25-05b", "Qwen2.5 0.5B Instruct", "≈ 0.4 ГБ",
             "Самая быстрая. Для слабых телефонов и простых вопросов.",
-            "$HF/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+            "$HF/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf",
         ),
         CatalogModel(
             "qwen25-15b", "Qwen2.5 1.5B Instruct", "≈ 1.1 ГБ",
             "Лучший баланс скорость/качество, хорошо знает русский. Рекомендуется.",
-            "$HF/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+            "$HF/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_0.gguf",
         ),
         CatalogModel(
             "qwen25-15b-abl", "Qwen2.5 1.5B без цензуры", "≈ 0.9 ГБ",
@@ -44,12 +45,12 @@ object Catalog {
         CatalogModel(
             "qwen25-coder-15b", "Qwen2.5 Coder 1.5B", "≈ 1.1 ГБ",
             "Для режима codProd: пишет и чинит код (Kotlin, Python, JS, C++…).",
-            "$HF/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+            "$HF/bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-1.5B-Instruct-Q4_0.gguf",
         ),
         CatalogModel(
             "llama32-1b", "Llama 3.2 1B Instruct", "≈ 0.8 ГБ",
             "Модель Meta, быстрая, лучше всего на английском.",
-            "$HF/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+            "$HF/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_0.gguf",
         ),
         CatalogModel(
             "gemma2-2b", "Gemma 2 2B it", "≈ 1.7 ГБ",
@@ -59,7 +60,7 @@ object Catalog {
         CatalogModel(
             "qwen25-3b", "Qwen2.5 3B Instruct", "≈ 2.1 ГБ",
             "Самая умная из списка. Медленная, нужно 6+ ГБ ОЗУ.",
-            "$HF/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
+            "$HF/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_0.gguf",
         ),
     )
 }

@@ -72,7 +72,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             _ui.update { it.copy(phase = Phase.LoadingModel, status = "Загрузка ${m.name}…", error = null) }
             try {
                 val s = _settings.value
-                engine.load(m.file.absolutePath, s.contextSize, s.threads)
+                engine.load(m.file.absolutePath, s.contextSize, s.genThreads, AppSettings.batchThreads(), s.kvQ8)
                 updateSettings(s.copy(lastModel = m.file.absolutePath))
                 _ui.update { it.copy(modelName = m.name) }
             } catch (e: Exception) {
@@ -200,6 +200,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 val out = StringBuilder()
                 var count = 0
                 var startedAt = 0L
+                var lastUi = 0L
                 engine.generate(prompt, gen)
                     .collect { chunk ->
                         if (count == 0) {
@@ -208,7 +209,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         }
                         count++
                         out.append(chunk)
-                        _ui.update { it.copy(streaming = out.toString()) }
+                        // redraw at most ~20×/s: recomposing per token steals CPU from the model
+                        val now = System.nanoTime()
+                        if (now - lastUi > 50_000_000L) {
+                            lastUi = now
+                            _ui.update { it.copy(streaming = out.toString()) }
+                        }
                     }
                 val secs = (System.nanoTime() - startedAt) / 1e9f
                 val tps = if (count > 1 && secs > 0) count / secs else null

@@ -13,7 +13,7 @@ object LlamaNative {
     }
 
     private external fun backendInit()
-    external fun load(path: String, nCtx: Int, nThreads: Int): Long
+    external fun load(path: String, nCtx: Int, nThreads: Int, nThreadsBatch: Int, kvQ8: Boolean): Long
     external fun free(handle: Long)
     external fun contextSize(handle: Long): Int
     external fun description(handle: Long): String

@@ -89,14 +89,28 @@ fun SettingsScreen(vm: ChatViewModel) {
             PulseCard(Modifier.fillMaxWidth()) {
                 Text("Размер контекста (память диалога)", color = p.ink, fontSize = 14.sp)
                 Spacer(Modifier.height(8.dp))
-                val ctxs = listOf(2048, 4096, 8192)
-                Segmented(listOf("2K", "4K", "8K"), ctxs.indexOf(s.contextSize).coerceAtLeast(0)) {
+                val ctxs = listOf(2048, 4096, 8192, 16384)
+                Segmented(listOf("2K", "4K", "8K", "16K"), ctxs.indexOf(s.contextSize).coerceAtLeast(0)) {
                     set(s.copy(contextSize = ctxs[it]))
                 }
                 Spacer(Modifier.height(10.dp))
                 val cores = Runtime.getRuntime().availableProcessors()
-                SliderRow("Потоки CPU", "${s.threads} из $cores", s.threads.toFloat(), 1f..cores.toFloat()) {
-                    set(s.copy(threads = it.roundToInt().coerceIn(1, cores)))
+                SliderRow(
+                    "Потоки генерации", if (s.threads == 0) "авто (${s.genThreads}) из $cores" else "${s.threads} из $cores",
+                    s.threads.toFloat(), 0f..cores.toFloat(),
+                ) { set(s.copy(threads = it.roundToInt().coerceIn(0, cores))) }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Сжатый контекст (KV 8-бит)", color = p.ink, fontSize = 14.sp)
+                        Text("В 2 раза меньше памяти на диалог, быстрее длинные чаты", color = p.muted, fontSize = 12.sp)
+                    }
+                    androidx.compose.material3.Switch(
+                        checked = s.kvQ8, onCheckedChange = { set(s.copy(kvQ8 = it)) },
+                        colors = androidx.compose.material3.SwitchDefaults.colors(
+                            checkedThumbColor = p.onAccent, checkedTrackColor = p.accent,
+                            uncheckedThumbColor = p.muted, uncheckedTrackColor = p.inset,
+                        ),
+                    )
                 }
                 Text("Больше контекста — больше ОЗУ. Изменения применяются после перезагрузки модели.",
                     color = p.muted, fontSize = 12.sp)

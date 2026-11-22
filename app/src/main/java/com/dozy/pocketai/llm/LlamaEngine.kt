@@ -32,9 +32,9 @@ class LlamaEngine {
 
     val isLoaded get() = handle != 0L
 
-    suspend fun load(path: String, nCtx: Int, nThreads: Int): String = withContext(thread) {
+    suspend fun load(path: String, nCtx: Int, nThreads: Int, nThreadsBatch: Int, kvQ8: Boolean): String = withContext(thread) {
         unloadInternal()
-        val h = LlamaNative.load(path, nCtx, nThreads)
+        val h = LlamaNative.load(path, nCtx, nThreads, nThreadsBatch, kvQ8)
         if (h == 0L) throw LlamaException("Не удалось загрузить модель (файл повреждён или не хватает памяти)")
         handle = h
         loadedPath = path

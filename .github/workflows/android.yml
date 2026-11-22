@@ -44,11 +44,19 @@ jobs:
         run: |
           export NDK_VERSION="$(basename "$ANDROID_NDK_HOME")"
           echo "Using NDK $NDK_VERSION"
-          gradle --no-daemon :app:assembleRelease
+          set -o pipefail
+          gradle --no-daemon :app:assembleRelease 2>&1 | tee build.log
           mkdir -p out
           cp app/build/outputs/apk/release/app-release.apk "out/PocketAI-0.1.${{ github.run_number }}.apk"
           # release notes = commit message (shown in the in-app update card)
           git log -1 --format=%B | grep -v -e '^Co-Authored-By' -e '^Claude-Session' > out/notes.md
+
+      - name: Show compile errors
+        if: failure()
+        run: |
+          grep -E "^e: |error:|What went wrong" -A3 build.log | head -60 | while IFS= read -r line; do
+            echo "::error::${line//%/%25}"
+          done
 
       - uses: actions/upload-artifact@v4
         with:

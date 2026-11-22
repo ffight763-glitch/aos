@@ -1,0 +1,26 @@
+package com.dozy.pocketai
+
+import android.app.Application
+import com.dozy.pocketai.data.ChatStore
+import com.dozy.pocketai.data.ModelRepository
+import com.dozy.pocketai.data.SettingsStore
+import com.dozy.pocketai.llm.LlamaEngine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+
+class PocketApp : Application() {
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    lateinit var engine: LlamaEngine
+    lateinit var models: ModelRepository
+    lateinit var settings: SettingsStore
+    lateinit var chats: ChatStore
+
+    override fun onCreate() {
+        super.onCreate()
+        engine = LlamaEngine()
+        models = ModelRepository(this, appScope)
+        settings = SettingsStore(this)
+        chats = ChatStore(this)
+    }
+}

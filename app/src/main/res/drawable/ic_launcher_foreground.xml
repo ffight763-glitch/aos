@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Chip with a spark: "AI in your pocket" -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#00000000" android:strokeColor="#DCE5EE" android:strokeWidth="4"
+        android:pathData="M38,36h32a4,4 0,0 1,4 4v28a4,4 0,0 1,-4 4h-32a4,4 0,0 1,-4 -4v-28a4,4 0,0 1,4 -4z" />
+    <path android:fillColor="#DCE5EE"
+        android:pathData="M28,44h6v4h-6zM28,60h6v4h-6zM74,44h6v4h-6zM74,60h6v4h-6zM46,26h4v10h-4zM58,26h4v10h-4zM46,72h4v10h-4zM58,72h4v10h-4z" />
+    <path android:fillColor="#F1F3F5"
+        android:pathData="M54,42l3.5,8.5 8.5,3.5 -8.5,3.5 -3.5,8.5 -3.5,-8.5 -8.5,-3.5 8.5,-3.5z" />
+</vector>

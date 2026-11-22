@@ -1,0 +1,28 @@
+cmake_minimum_required(VERSION 3.22.1)
+project("pocketai")
+
+# llama.cpp source lives in <repo>/llama.cpp (cloned by scripts/get-llama.sh or CI)
+set(LLAMA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../llama.cpp")
+if(NOT EXISTS "${LLAMA_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR "llama.cpp not found at ${LLAMA_DIR}. Run ./scripts/get-llama.sh first.")
+endif()
+
+set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_COMMON OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
+set(GGML_LLAMAFILE OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    # ARMv8.2 dot-product + fp16: big speed-up for Q4/Q8 models (Cortex-A55/A75 and newer)
+    set(GGML_CPU_ARM_ARCH "armv8.2-a+dotprod+fp16" CACHE STRING "" FORCE)
+endif()
+
+add_subdirectory(${LLAMA_DIR} build-llama)
+
+add_library(pocketai SHARED pocketai.cpp)
+target_link_libraries(pocketai llama android log)

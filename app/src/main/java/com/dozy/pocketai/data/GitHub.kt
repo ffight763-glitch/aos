@@ -217,6 +217,26 @@ class GitHub(context: Context) {
         request(url, accept = "application/vnd.github.raw").also { fileCache[key] = it }
     }
 
+    /** Codex-style: writes [content] to [path] as one commit on the repo's branch. Returns the commit URL. */
+    suspend fun commitFile(repo: GhRepo, path: String, content: String, message: String): String = withContext(Dispatchers.IO) {
+        val clean = path.trim().trimStart('/')
+        val api = "/repos/${repo.fullName}/contents/${clean.split('/').joinToString("/") { enc(it) }}"
+        val sha = runCatching {
+            json.parseToJsonElement(request("$api?ref=${enc(repo.branch)}")).jsonObject["sha"]?.jsonPrimitive?.content
+        }.getOrNull()
+        val body = kotlinx.serialization.json.buildJsonObject {
+            put("message", kotlinx.serialization.json.JsonPrimitive(message.ifBlank { "Update $clean from PocketAI" }))
+            put("content", kotlinx.serialization.json.JsonPrimitive(
+                android.util.Base64.encodeToString(content.toByteArray(), android.util.Base64.NO_WRAP)))
+            put("branch", kotlinx.serialization.json.JsonPrimitive(repo.branch))
+            if (sha != null) put("sha", kotlinx.serialization.json.JsonPrimitive(sha))
+        }.toString()
+        val res = json.parseToJsonElement(request(api, method = "PUT", body = body)).jsonObject
+        fileCache.remove("${repo.fullName}@${repo.branch}:$clean")
+        treeCache.remove("${repo.fullName}@${repo.branch}")
+        res["commit"]?.jsonObject?.get("html_url")?.jsonPrimitive?.content ?: "https://github.com/${repo.fullName}"
+    }
+
     /** Forget cached trees/files (e.g. after a push). */
     fun refresh() { treeCache.clear(); fileCache.clear() }
 
@@ -241,15 +261,29 @@ class GitHub(context: Context) {
     private fun api(path: String, token: String? = _state.value.token): JsonElement =
         json.parseToJsonElement(request(path, token = token))
 
-    private fun request(path: String, accept: String = "application/vnd.github+json", token: String? = _state.value.token): String {
+    private fun request(
+        path: String,
+        accept: String = "application/vnd.github+json",
+        token: String? = _state.value.token,
+        method: String = "GET",
+        body: String? = null,
+    ): String {
         val c = URL("https://api.github.com$path").openConnection() as HttpURLConnection
+        c.requestMethod = method
         c.setRequestProperty("Accept", accept)
         c.setRequestProperty("User-Agent", "PocketAI")
         c.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
         if (token != null) c.setRequestProperty("Authorization", "Bearer $token")
         c.connectTimeout = 10_000
         c.readTimeout = 20_000
+        if (body != null) {
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/json")
+            c.outputStream.use { it.write(body.toByteArray()) }
+        }
         val code = c.responseCode
+        if (code == 409) throw GitHubException("GitHub: конфликт — файл изменился, попробуй ещё раз")
+        if (code == 403 || code == 404) if (method != "GET") throw GitHubException("GitHub: нет прав на запись в репо (HTTP $code)")
         if (code == 401) throw GitHubException("GitHub: вход недействителен, войди заново")
         if (code !in 200..299) throw GitHubException("GitHub: HTTP $code")
         return c.inputStream.bufferedReader().use { it.readText() }

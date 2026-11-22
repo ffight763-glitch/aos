@@ -2,6 +2,7 @@ package com.dozy.pocketai.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,6 +73,23 @@ fun SettingsScreen(vm: ChatViewModel) {
                 PillButton("Сбросить") { set(s.copy(systemPrompt = AppSettings.DEFAULT_SYSTEM)) }
             }
 
+            SectionHeading("Память (как у Claude)")
+            PulseCard(Modifier.fillMaxWidth()) {
+                Text("Что модель должна всегда знать о тебе — во всех чатах и режимах.", color = p.muted, fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier.fillMaxWidth().heightIn(min = 80.dp).clip(RoundedCornerShape(12.dp)).background(p.inset)
+                        .border(1.dp, p.outline, RoundedCornerShape(12.dp)).padding(12.dp),
+                ) {
+                    if (s.memory.isEmpty()) Text("Например: меня зовут…, пишу на Kotlin, телефон Realme C71…", color = p.muted, fontSize = 14.sp)
+                    BasicTextField(
+                        s.memory, { set(s.copy(memory = it)) },
+                        textStyle = TextStyle(color = p.ink, fontSize = 14.sp, lineHeight = 20.sp),
+                        cursorBrush = SolidColor(p.ink), modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+
             SectionHeading("Генерация")
             PulseCard(Modifier.fillMaxWidth()) {
                 SliderRow("Креативность (temperature)", "%.2f".format(s.temperature), s.temperature, 0f..1.5f) {
@@ -129,7 +147,33 @@ fun SettingsScreen(vm: ChatViewModel) {
                 SliderRow("Текста с каждой", "${s.webCharsPerPage} симв.", s.webCharsPerPage.toFloat(), 400f..3000f) {
                     set(s.copy(webCharsPerPage = (it / 100).roundToInt() * 100))
                 }
-                Text("Поиск идёт через DuckDuckGo (запасной — Википедия). Найденный текст подаётся модели, сама модель работает локально.",
+                Text("Поисковики (спрашиваются одновременно)", color = p.ink, fontSize = 14.sp)
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("google" to "Google", "bing" to "Bing", "duckduckgo" to "DuckDuckGo", "brave" to "Brave").forEach { (id, name) ->
+                        val on = id in s.engines
+                        PillButton(name, primary = on) {
+                            val next = if (on) s.engines - id else s.engines + id
+                            if (next.isNotEmpty()) set(s.copy(engines = next))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Без русских сайтов", color = p.ink, fontSize = 14.sp)
+                        Text("Скрывать .ru/.рф/.su, Яндекс, Mail.ru, VK, Дзен", color = p.muted, fontSize = 12.sp)
+                    }
+                    androidx.compose.material3.Switch(
+                        checked = s.blockRu, onCheckedChange = { set(s.copy(blockRu = it)) },
+                        colors = androidx.compose.material3.SwitchDefaults.colors(
+                            checkedThumbColor = p.onAccent, checkedTrackColor = p.accent,
+                            uncheckedThumbColor = p.muted, uncheckedTrackColor = p.inset,
+                        ),
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("Запасной — Википедия. Найденный текст подаётся модели, сама модель работает локально.",
                     color = p.muted, fontSize = 12.sp)
             }
             Spacer(Modifier.height(12.dp))

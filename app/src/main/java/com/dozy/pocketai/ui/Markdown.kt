@@ -20,6 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -36,6 +38,18 @@ import androidx.compose.ui.unit.sp
 /** Sends a command to the Terminal tab (provided by the app shell). */
 val LocalRunInTerminal = androidx.compose.runtime.staticCompositionLocalOf<((String) -> Unit)?> { null }
 
+/** Codex-style "commit this block" (provided when a repo is attached): (path, content, message). */
+data class RepoCommit(val defaultPath: String?, val commit: (String, String, String) -> Unit)
+val LocalCommitToRepo = androidx.compose.runtime.staticCompositionLocalOf<RepoCommit?> { null }
+
+/** Guesses the file a code block belongs to: ```kotlin:app/Main.kt or a first-line "// path: …" comment. */
+private fun guessPath(lang: String, code: String): String? {
+    lang.substringAfter(':', "").trim().takeIf { '.' in it }?.let { return it }
+    val first = code.lineSequence().firstOrNull()?.trim().orEmpty()
+    Regex("^(?://|#|<!--|/\\*)\\s*(?:path|file|файл)?:?\\s*([\\w./-]+\\.[\\w]+)").find(first)?.let { return it.groupValues[1] }
+    return null
+}
+
 private val shellLangs = setOf("bash", "sh", "shell", "zsh", "console", "terminal")
 
 /** Small Markdown renderer: code fences, headings, bullet lists, **bold**, *italic*, `code`. */
@@ -45,6 +59,16 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
     val blocks = splitBlocks(text)
     val clipboard = LocalClipboardManager.current
     val runInTerminal = LocalRunInTerminal.current
+    val openPreview = LocalOpenPreview.current
+    val repoCommit = LocalCommitToRepo.current
+    var commitFor by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Block.Code?>(null) }
+    commitFor?.let { b ->
+        CommitDialog(
+            path = guessPath(b.lang, b.code) ?: repoCommit?.defaultPath.orEmpty(),
+            onCommit = { path, msg -> repoCommit?.commit?.invoke(path, b.code, msg); commitFor = null },
+            onDismiss = { commitFor = null },
+        )
+    }
     SelectionContainer(modifier) {
         Column {
             blocks.forEachIndexed { i, b ->
@@ -59,7 +83,19 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(b.lang.ifEmpty { "код" }, color = p.muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                            if (runInTerminal != null && b.lang.lowercase() in shellLangs) Row(
+                            val isHtml = b.lang.lowercase().substringBefore(':') in setOf("html", "htm") ||
+                                b.code.trimStart().startsWith("<!DOCTYPE", true) || b.code.trimStart().startsWith("<html", true)
+                            if (openPreview != null && isHtml) Row(
+                                Modifier.clip(RoundedCornerShape(50)).clickable { openPreview(PreviewRequest("Превью", b.code)) }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) { Text("▶ Запустить", color = p.ink, fontSize = 11.sp) }
+                            if (repoCommit != null) Row(
+                                Modifier.clip(RoundedCornerShape(50)).clickable { commitFor = b }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) { Text("⬆ В репо", color = p.ink, fontSize = 11.sp) }
+                            if (runInTerminal != null && b.lang.lowercase().substringBefore(':') in shellLangs) Row(
                                 Modifier.clip(RoundedCornerShape(50)).clickable {
                                     runInTerminal(b.code.lines().joinToString("\n") { it.removePrefix("$ ") })
                                 }.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -88,6 +124,45 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CommitDialog(path: String, onCommit: (String, String) -> Unit, onDismiss: () -> Unit) {
+    val p = LocalPulse.current
+    var file by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(path) }
+    var msg by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = p.bar,
+        title = { Text("Коммит в репозиторий", color = p.ink) },
+        text = {
+            Column {
+                Text("Путь к файлу", color = p.muted, fontSize = 12.sp)
+                DialogField(file, { file = it }, "app/src/Main.kt")
+                Spacer(Modifier.height(10.dp))
+                Text("Сообщение коммита", color = p.muted, fontSize = 12.sp)
+                DialogField(msg, { msg = it }, "Update from PocketAI")
+            }
+        },
+        confirmButton = { PillButton("Закоммитить", primary = true, enabled = file.isNotBlank()) { onCommit(file, msg) } },
+        dismissButton = { PillButton("Отмена", onClick = onDismiss) },
+    )
+}
+
+@Composable
+private fun DialogField(value: String, onChange: (String) -> Unit, hint: String) {
+    val p = LocalPulse.current
+    androidx.compose.foundation.layout.Box(
+        Modifier.fillMaxWidth().padding(top = 4.dp).clip(RoundedCornerShape(12.dp)).background(p.inset).padding(12.dp),
+    ) {
+        if (value.isEmpty()) Text(hint, color = p.muted, fontSize = 14.sp)
+        androidx.compose.foundation.text.BasicTextField(
+            value, onChange, singleLine = true,
+            textStyle = androidx.compose.ui.text.TextStyle(color = p.ink, fontSize = 14.sp, fontFamily = FontFamily.Monospace),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(p.ink),
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

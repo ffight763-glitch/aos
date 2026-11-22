@@ -16,6 +16,11 @@ data class AppSettings(
     val webCharsPerPage: Int = 1200,
     val lastModel: String? = null,
     val theme: Int = 0, // 0 system, 1 night, 2 day
+    val memory: String = "",
+    val comboModel: String? = null,   // path of the second model for Combo
+    val comboStyle: Int = 0,          // 0 = draft → improve, 1 = both answer
+    val engines: Set<String> = setOf("google", "bing", "duckduckgo", "brave"),
+    val blockRu: Boolean = true, // what the assistant should always know about the user
 ) {
     companion object {
         const val DEFAULT_SYSTEM =
@@ -52,6 +57,11 @@ class SettingsStore(context: Context) {
             webCharsPerPage = p.getInt("web_chars", d.webCharsPerPage),
             lastModel = p.getString("last_model", null),
             theme = p.getInt("theme", d.theme),
+            memory = p.getString("memory", "") ?: "",
+            comboModel = p.getString("combo_model", null),
+            comboStyle = p.getInt("combo_style", 0),
+            engines = p.getStringSet("engines", null)?.toSet() ?: d.engines,
+            blockRu = p.getBoolean("block_ru", true),
         )
     }
 
@@ -70,6 +80,11 @@ class SettingsStore(context: Context) {
             .putInt("web_chars", s.webCharsPerPage)
             .putString("last_model", s.lastModel)
             .putInt("theme", s.theme)
+            .putString("memory", s.memory)
+            .putString("combo_model", s.comboModel)
+            .putInt("combo_style", s.comboStyle)
+            .putStringSet("engines", s.engines)
+            .putBoolean("block_ru", s.blockRu)
             .apply()
     }
 }

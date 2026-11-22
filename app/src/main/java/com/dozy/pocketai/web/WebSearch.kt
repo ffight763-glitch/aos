@@ -34,13 +34,104 @@ object WebSearch {
     }
     private const val CACHE_MS = 10 * 60 * 1000L
 
+    /** Engines to ask, set from the settings. */
+    @Volatile var engines: Set<String> = setOf("google", "bing", "duckduckgo", "brave")
+    /** Drop Russian sites and search engines from the results. */
+    @Volatile var blockRu: Boolean = true
+
+    private val ruHosts = listOf(
+        "yandex.", "ya.ru", "mail.ru", "vk.com", "vk.ru", "ok.ru", "dzen.ru", "rambler.ru", "rutube.ru",
+        "sber", "habr.com", "pikabu.ru", "rbc.ru", "ria.ru", "tass.", "lenta.ru", "gazeta.ru", "kp.ru",
+    )
+
+    private fun isRu(url: String): Boolean {
+        val host = runCatching { java.net.URI(url).host?.lowercase() }.getOrNull() ?: return false
+        if (host.endsWith(".ru") || host.endsWith(".su") || host.endsWith(".xn--p1ai") || host.endsWith(".рф")) return true
+        return ruHosts.any { host.contains(it) }
+    }
+
+    /** Asks all engines in parallel and merges their answers rank by rank, without duplicates. */
     suspend fun search(query: String, limit: Int = 5): List<SearchHit> = withContext(Dispatchers.IO) {
-        val key = query.trim().lowercase() + "#" + limit
+        val key = query.trim().lowercase() + "#" + limit + "#" + engines.sorted() + blockRu
         synchronized(cache) { cache[key] }?.let { (t, hits) -> if (System.currentTimeMillis() - t < CACHE_MS) return@withContext hits }
-        val ddg = runCatching { duckDuckGo(query, limit) }.getOrDefault(emptyList())
-        val hits = ddg.ifEmpty { runCatching { wikipedia(query, limit) }.getOrDefault(emptyList()) }
+        val want = limit + 4
+        val lists = coroutineScope {
+            listOfNotNull(
+                if ("google" in engines) async { runCatching { google(query, want) }.getOrDefault(emptyList()) } else null,
+                if ("bing" in engines) async { runCatching { bing(query, want) }.getOrDefault(emptyList()) } else null,
+                if ("duckduckgo" in engines) async { runCatching { duckDuckGo(query, want) }.getOrDefault(emptyList()) } else null,
+                if ("brave" in engines) async { runCatching { brave(query, want) }.getOrDefault(emptyList()) } else null,
+            ).awaitAll()
+        }
+        val merged = LinkedHashMap<String, SearchHit>()
+        val longest = lists.maxOfOrNull { it.size } ?: 0
+        for (rank in 0 until longest) for (l in lists) {
+            val h = l.getOrNull(rank) ?: continue
+            if (blockRu && isRu(h.url)) continue
+            val norm = h.url.substringBefore('#').removeSuffix("/").replace("://www.", "://").lowercase()
+            val prev = merged[norm]
+            if (prev == null) merged[norm] = h
+            else if (prev.snippet.length < h.snippet.length) merged[norm] = prev.copy(snippet = h.snippet)
+        }
+        var hits = merged.values.take(limit)
+        if (hits.isEmpty()) hits = runCatching { wikipedia(query, limit) }.getOrDefault(emptyList()).filterNot { blockRu && isRu(it.url) }
         if (hits.isNotEmpty()) synchronized(cache) { cache[key] = System.currentTimeMillis() to hits }
         hits
+    }
+
+    private fun google(query: String, limit: Int): List<SearchHit> {
+        val doc = Jsoup.connect("https://www.google.com/search")
+            .userAgent(UA)
+            .data("q", query).data("num", "${limit + 2}").data("hl", "en").data("gbv", "1").data("safe", "off")
+            // skip the EU consent page
+            .cookie("CONSENT", "YES+cb").cookie("SOCS", "CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg")
+            .timeout(7_000)
+            .get()
+        return doc.select("a:has(h3)").asSequence().mapNotNull { a ->
+            var href = a.attr("href")
+            if (href.startsWith("/url?")) href = Regex("[?&]q=([^&]+)").find(href)?.groupValues?.get(1)?.let { URLDecoder.decode(it, "UTF-8") } ?: return@mapNotNull null
+            if (!href.startsWith("http") || "google." in href.substringAfter("://").substringBefore('/')) return@mapNotNull null
+            val title = a.selectFirst("h3")?.text().orEmpty()
+            // the snippet sits in the result block around the link
+            val block = generateSequence(a.parent()) { it.parent() }.take(5).firstOrNull { it.text().length > title.length + 40 }
+            val snippet = block?.text()?.replace(title, "")?.trim()?.take(400).orEmpty()
+            SearchHit(title, href, snippet)
+        }.distinctBy { it.url }.take(limit).toList()
+    }
+
+    private fun bing(query: String, limit: Int): List<SearchHit> {
+        val doc = Jsoup.connect("https://www.bing.com/search")
+            .userAgent(UA).data("q", query).data("count", "${limit + 2}").data("setlang", "en")
+            .cookie("SRCHHPGUSR", "ADLT=OFF").timeout(7_000).get()
+        return doc.select("li.b_algo").asSequence().mapNotNull { li ->
+            val a = li.selectFirst("h2 a") ?: return@mapNotNull null
+            val url = cleanBingUrl(a.attr("href"))
+            if (!url.startsWith("http")) return@mapNotNull null
+            val snippet = (li.selectFirst(".b_caption p") ?: li.selectFirst(".b_lineclamp2, .b_lineclamp3, .b_lineclamp4, p"))?.text().orEmpty()
+            SearchHit(a.text(), url, snippet)
+        }.take(limit).toList()
+    }
+
+    /** Bing wraps links as bing.com/ck/a?…&u=a1<base64url>. */
+    private fun cleanBingUrl(href: String): String {
+        if (!href.contains("bing.com/ck/")) return href
+        val u = Regex("[?&]u=a1([^&]+)").find(href)?.groupValues?.get(1) ?: return href
+        return runCatching {
+            String(android.util.Base64.decode(u, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP))
+        }.getOrDefault(href)
+    }
+
+    private fun brave(query: String, limit: Int): List<SearchHit> {
+        val doc = Jsoup.connect("https://search.brave.com/search")
+            .userAgent(UA).data("q", query).data("source", "web").timeout(7_000).get()
+        return doc.select("div.snippet[data-type=web], div[data-type=web]").asSequence().mapNotNull { d ->
+            val a = d.selectFirst("a[href^=http]") ?: return@mapNotNull null
+            val url = a.attr("href")
+            if ("brave.com" in url) return@mapNotNull null
+            val title = (d.selectFirst(".title, .snippet-title, .heading") ?: a).text()
+            val snippet = d.selectFirst(".snippet-description, .snippet-content, .description, .content")?.text().orEmpty()
+            SearchHit(title, url, snippet)
+        }.distinctBy { it.url }.take(limit).toList()
     }
 
     /** ⚡ fast mode: search snippets only, no page downloads. */
@@ -55,6 +146,7 @@ object WebSearch {
         val doc = Jsoup.connect("https://html.duckduckgo.com/html/")
             .userAgent(UA)
             .data("q", query)
+            .data("kl", "wt-wt")
             .timeout(7_000)
             .post()
         return doc.select("div.result").asSequence()

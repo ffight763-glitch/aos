@@ -35,6 +35,9 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Widgets
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -84,6 +87,10 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openSettings: () -> Un
     val gh by vm.github.state.collectAsStateWithLifecycle()
     var repoSheet by remember { mutableStateOf(false) }
     var modelSheet by remember { mutableStateOf(false) }
+    val openPreview = LocalOpenPreview.current
+    LaunchedEffect(ui.preview) {
+        ui.preview?.let { openPreview?.invoke(it); vm.consumePreview() }
+    }
     if (modelSheet) ModelSheet(vm, onMore = openModels, onDismiss = { modelSheet = false })
     if (repoSheet) RepoSheet(
         vm.github, gh.attachment,
@@ -101,22 +108,34 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openSettings: () -> Un
                 onNew = { vm.newChat(); scope.launch { drawer.close() } },
                 onOpen = { vm.openChat(it); scope.launch { drawer.close() } },
                 onDelete = { vm.deleteChat(it) },
+                apps = vm.apps,
+                onOpenApp = { app -> openPreview?.invoke(PreviewRequest(app.title, app.file.readText())); scope.launch { drawer.close() } },
             )
         },
     ) {
         Column(Modifier.fillMaxSize().background(p.bg)) {
             PulseHeader(
                 title = if (ui.conversation.messages.isEmpty()) "PocketAI" else ui.conversation.title,
-                subtitle = (if (ui.codeMode) "codProd · " else "") + (ui.modelName ?: "Модель не загружена"),
+                subtitle = listOfNotNull(
+                    "codProd".takeIf { ui.codeMode }, "Builder".takeIf { ui.builderMode }, "Комбо".takeIf { ui.combo },
+                ).joinToString(" · ", postfix = if (ui.codeMode || ui.builderMode || ui.combo) " · " else "") +
+                    (ui.modelName ?: "Модель не загружена"),
                 leading = { PillIcon(Icons.Outlined.Menu, "Чаты", size = 38.dp) { scope.launch { drawer.open() } } },
                 onTitleClick = { modelSheet = true },
             ) {
-                PillIcon(Icons.Outlined.Code, "codProd", active = ui.codeMode, size = 38.dp) { vm.toggleCode() }
                 PillIcon(Icons.Outlined.Language, "Интернет", active = ui.webEnabled, size = 38.dp) { vm.toggleWeb() }
                 PillIcon(Icons.Outlined.Add, "Новый чат", primary = true) { vm.newChat() }
             }
 
             UpdateBanner(vm.updater)
+
+            ui.notice?.let { n ->
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clip(RoundedCornerShape(14.dp))
+                        .background(Green.copy(alpha = 0.16f)).border(1.dp, Green.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                        .clickable { vm.dismissNotice() }.padding(12.dp),
+                ) { Text(n, color = p.ink, fontSize = 13.sp) }
+            }
 
             ui.error?.let { err ->
                 Row(
@@ -135,11 +154,26 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openSettings: () -> Un
                 if (ui.conversation.messages.isEmpty() && ui.streaming.isEmpty() && ui.phase == Phase.Idle) {
                     EmptyState(loaded = ui.modelName != null, web = ui.webEnabled, code = ui.codeMode, openModels = openModels, onPrompt = vm::send)
                 } else {
-                    Messages(ui, onRegenerate = vm::regenerate)
+                    val commit = gh.attachment?.let { a ->
+                        RepoCommit(a.files.singleOrNull()) { path, content, msg -> vm.commitToRepo(path, content, msg) }
+                    }
+                    androidx.compose.runtime.CompositionLocalProvider(LocalCommitToRepo provides commit) {
+                        Messages(ui, onRegenerate = vm::regenerate, onEdit = vm::editMessage)
+                    }
                 }
             }
 
             StatusLine(ui)
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SearchChip("Чат", !ui.codeMode && !ui.builderMode) { vm.setMode(0) }
+                SearchChip("</> codProd", ui.codeMode) { vm.setMode(1) }
+                SearchChip("▶ Builder", ui.builderMode) { vm.setMode(2) }
+                SearchChip("⚭ Комбо", ui.combo) { vm.toggleCombo() }
+            }
             if (ui.webEnabled) Row(
                 Modifier.padding(start = 12.dp, top = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -173,7 +207,9 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openSettings: () -> Un
                 busy = ui.phase != Phase.Idle,
                 web = ui.webEnabled,
                 fast = ui.fastSearch,
-                code = ui.codeMode,
+                code = ui.codeMode || ui.builderMode,
+                draft = ui.draft,
+                onDraftUsed = vm::consumeDraft,
                 onSend = vm::send,
                 onStop = vm::stop,
             )
@@ -187,8 +223,11 @@ private fun ChatDrawer(
     onNew: () -> Unit,
     onOpen: (com.dozy.pocketai.data.Conversation) -> Unit,
     onDelete: (com.dozy.pocketai.data.Conversation) -> Unit,
+    apps: com.dozy.pocketai.data.AppsStore,
+    onOpenApp: (com.dozy.pocketai.data.BuiltApp) -> Unit,
 ) {
     val p = LocalPulse.current
+    val built by apps.apps.collectAsStateWithLifecycle()
     Column(
         Modifier
             .fillMaxHeight()
@@ -204,8 +243,19 @@ private fun ChatDrawer(
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 6.dp))
         Spacer(Modifier.size(14.dp))
         DrawerRow(Icons.Outlined.Add, "Новый чат", onClick = onNew)
-        SectionHeading("История", Modifier.padding(start = 8.dp, top = 8.dp))
         LazyColumn(Modifier.weight(1f)) {
+            if (built.isNotEmpty()) {
+                item { SectionHeading("Мои приложения", Modifier.padding(start = 8.dp, top = 8.dp)) }
+                items(built, key = { "app-" + it.id }) { a ->
+                    DrawerRow(Icons.Outlined.Widgets, a.title, onClick = { onOpenApp(a) }) {
+                        Icon(
+                            Icons.Outlined.DeleteOutline, "Удалить", tint = p.muted,
+                            modifier = Modifier.size(36.dp).clip(CircleShape).clickable { apps.delete(a) }.padding(8.dp),
+                        )
+                    }
+                }
+            }
+            item { SectionHeading("История", Modifier.padding(start = 8.dp, top = 8.dp)) }
             items(ui.history, key = { it.id }) { c ->
                 DrawerRow(Icons.Outlined.ChatBubbleOutline, c.title, active = c.id == ui.conversation.id, onClick = { onOpen(c) }) {
                     Icon(
@@ -254,7 +304,7 @@ private fun EmptyState(loaded: Boolean, web: Boolean, code: Boolean, openModels:
 }
 
 @Composable
-private fun Messages(ui: ChatUiState, onRegenerate: () -> Unit) {
+private fun Messages(ui: ChatUiState, onRegenerate: () -> Unit, onEdit: (Message) -> Unit) {
     val list = rememberLazyListState()
     val msgs = ui.conversation.messages
     val total = msgs.size + if (ui.streaming.isNotEmpty()) 1 else 0
@@ -268,7 +318,7 @@ private fun Messages(ui: ChatUiState, onRegenerate: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         itemsIndexed(msgs, key = { _, m -> m.id }) { i, m ->
-            if (m.role == "user") UserBubble(m)
+            if (m.role == "user") UserBubble(m, canEdit = ui.phase == Phase.Idle, onEdit = { onEdit(m) })
             else BotBubble(
                 m.text, m,
                 // sources live on the user message that triggered the search
@@ -282,7 +332,7 @@ private fun Messages(ui: ChatUiState, onRegenerate: () -> Unit) {
 }
 
 @Composable
-private fun UserBubble(m: Message) {
+private fun UserBubble(m: Message, canEdit: Boolean, onEdit: () -> Unit) {
     val p = LocalPulse.current
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
         Text(
@@ -303,6 +353,11 @@ private fun UserBubble(m: Message) {
         if (m.sources.isNotEmpty()) {
             Text("🌐 найдено источников: ${m.sources.size}", color = p.muted, fontSize = 11.sp, modifier = Modifier.padding(top = 3.dp, end = 6.dp))
         }
+        if (canEdit) Text(
+            "✎ Изменить", color = p.muted, fontSize = 11.sp,
+            modifier = Modifier.padding(top = 2.dp).clip(RoundedCornerShape(50)).clickable(onClick = onEdit)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
     }
 }
 
@@ -313,9 +368,22 @@ private fun BotBubble(text: String, m: Message?, sources: List<WebSource>, isLas
     val clipboard = LocalClipboardManager.current
     val uri = LocalUriHandler.current
     var showThinking by rememberSaveable(m?.id) { mutableStateOf(false) }
+    var showDraft by rememberSaveable(m?.id) { mutableStateOf(false) }
     val (thinking, answer) = remember(text) { splitThinking(text) }
 
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+        m?.model?.let { Text(it, color = p.muted, fontSize = 11.sp, modifier = Modifier.padding(start = 8.dp, bottom = 3.dp)) }
+        m?.draft?.let { d ->
+            Text(
+                if (showDraft) "▾ Черновик первой модели" else "▸ Черновик первой модели",
+                color = p.muted, fontSize = 11.sp,
+                modifier = Modifier.padding(start = 8.dp, bottom = 3.dp).clickable { showDraft = !showDraft },
+            )
+            if (showDraft) Text(
+                splitThinking(d).second, color = p.muted, fontSize = 13.sp, lineHeight = 18.sp,
+                modifier = Modifier.widthIn(max = 340.dp).padding(start = 8.dp, bottom = 6.dp),
+            )
+        }
         Column(
             Modifier
                 .widthIn(max = 340.dp)
@@ -384,9 +452,10 @@ private fun StatusLine(ui: ChatUiState) {
 }
 
 @Composable
-private fun InputBar(onFolder: () -> Unit, folderActive: Boolean, busy: Boolean, web: Boolean, fast: Boolean, code: Boolean, onSend: (String) -> Unit, onStop: () -> Unit) {
+private fun InputBar(onFolder: () -> Unit, folderActive: Boolean, busy: Boolean, web: Boolean, fast: Boolean, code: Boolean, draft: String?, onDraftUsed: () -> Unit, onSend: (String) -> Unit, onStop: () -> Unit) {
     val p = LocalPulse.current
     var text by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(draft) { if (draft != null) { text = draft; onDraftUsed() } }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Bottom,

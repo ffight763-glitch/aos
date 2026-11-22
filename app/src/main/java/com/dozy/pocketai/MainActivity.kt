@@ -41,6 +41,11 @@ import com.dozy.pocketai.ui.ChatViewModel
 import com.dozy.pocketai.ui.DockItem
 import com.dozy.pocketai.ui.LocalPulse
 import com.dozy.pocketai.ui.LocalRunInTerminal
+import com.dozy.pocketai.ui.LocalOpenPreview
+import com.dozy.pocketai.ui.PreviewDialog
+import com.dozy.pocketai.ui.PreviewRequest
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import com.dozy.pocketai.ui.TerminalScreen
 import com.dozy.pocketai.ui.ModelsScreen
 import com.dozy.pocketai.ui.PocketTheme
@@ -82,10 +87,15 @@ class MainActivity : ComponentActivity() {
 private fun Shell(vm: ChatViewModel) {
     val p = LocalPulse.current
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var preview by remember { mutableStateOf<PreviewRequest?>(null) }
+    preview?.let { PreviewDialog(it) { preview = null } }
     BackHandler(enabled = tab != 0) { tab = 0 }
     Column(Modifier.fillMaxSize().background(p.bg).imePadding()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            CompositionLocalProvider(LocalRunInTerminal provides { cmd -> vm.terminal.run(cmd); tab = 2 }) {
+            CompositionLocalProvider(
+                LocalRunInTerminal provides { cmd -> vm.terminal.run(cmd); tab = 2 },
+                LocalOpenPreview provides { req -> preview = req },
+            ) {
                 when (tab) {
                     1 -> ModelsScreen(vm)
                     2 -> TerminalScreen(vm.terminal)

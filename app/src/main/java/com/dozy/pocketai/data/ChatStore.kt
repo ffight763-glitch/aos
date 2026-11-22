@@ -20,6 +20,9 @@ data class Message(
     val repoContext: String? = null,         // attached repository files sent with this message
     val repoFiles: List<String> = emptyList(),
     val tokensPerSec: Float? = null,
+    val model: String? = null,      // which model wrote this answer
+    val draft: String? = null,      // combo "draft → improve": the first model's draft
+    val secondary: Boolean = false, // combo "both answer": the second answer (not sent back as history)
 )
 
 @Serializable

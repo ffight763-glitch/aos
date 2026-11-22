@@ -15,10 +15,11 @@ import pro.translate.app.AppViewModel
 import pro.translate.app.Languages
 
 @Composable
-fun ModelsScreen(vm: AppViewModel) {
+fun ModelsScreen(vm: AppViewModel, update: UpdateState, onCheckUpdate: () -> Unit) {
     LaunchedEffect(Unit) { vm.refreshModels() }
     val sorted = Languages.all.sortedBy { it.code !in vm.downloaded }
     LazyColumn(contentPadding = PaddingValues(16.dp)) {
+        item { UpdateCard(update, onCheckUpdate) }
         item {
             Text("Офлайн-языки", style = MaterialTheme.typography.titleLarge)
             Text("Скачайте языки заранее по Wi‑Fi — потом перевод работает без интернета. Одна модель ≈ 30 МБ.",

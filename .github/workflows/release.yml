@@ -1,0 +1,66 @@
+# Builds a signed APK and publishes it as a GitHub Release "v<versionName>".
+# The app checks releases/latest and offers the update (OTA).
+# To ship an update: bump versionCode + versionName in app/build.gradle.kts,
+# optionally write release-notes/<versionName>.md, push to main.
+#
+# Repo secrets needed (Settings -> Secrets and variables -> Actions):
+#   TP_KEYSTORE_B64  - base64 of the signing keystore (.jks)
+#   TP_KEYSTORE_PASS - keystore/key password
+#   TP_KEY_ALIAS     - key alias
+name: Release APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: v
+        run: |
+          VER=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VER" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - uses: actions/setup-java@v4
+        if: steps.v.outputs.exists == 'false'
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+        if: steps.v.outputs.exists == 'false'
+
+      - name: Build signed APK
+        if: steps.v.outputs.exists == 'false'
+        env:
+          TP_KEYSTORE_B64: ${{ secrets.TP_KEYSTORE_B64 }}
+          TP_KEYSTORE_PASS: ${{ secrets.TP_KEYSTORE_PASS }}
+          TP_KEY_ALIAS: ${{ secrets.TP_KEY_ALIAS }}
+        run: |
+          if [ -z "$TP_KEYSTORE_B64" ]; then echo "::error::Secret TP_KEYSTORE_B64 is missing"; exit 1; fi
+          echo "$TP_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/tp.jks"
+          export TP_KEYSTORE="$RUNNER_TEMP/tp.jks"
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk "translatePro-${{ steps.v.outputs.version }}.apk"
+
+      - name: Publish release
+        if: steps.v.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=${{ steps.v.outputs.version }}
+          NOTES="release-notes/$VER.md"
+          if [ ! -f "$NOTES" ]; then git log -1 --pretty=%B > /tmp/notes.md; NOTES=/tmp/notes.md; fi
+          gh release create "v$VER" "translatePro-$VER.apk" --title "translatePro $VER" --notes-file "$NOTES" --latest

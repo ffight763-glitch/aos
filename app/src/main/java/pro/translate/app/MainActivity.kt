@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
 import pro.translate.app.ui.*
 
 class MainActivity : ComponentActivity() {
@@ -25,6 +26,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             TPTheme {
                 var tab by rememberSaveable { mutableIntStateOf(0) }
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                val scope = rememberCoroutineScope()
+                val update = remember { UpdateState() }
+                LaunchedEffect(Unit) { checkForUpdate(ctx, update, manual = false) }
+                UpdateDialog(update)
                 Scaffold(
                     containerColor = MaterialTheme.colorScheme.background,
                     bottomBar = {
@@ -33,7 +39,7 @@ class MainActivity : ComponentActivity() {
                                 "Перевод" to Icons.Default.Translate,
                                 "Камера" to Icons.Default.PhotoCamera,
                                 "История" to Icons.Default.History,
-                                "Языки" to Icons.Default.Download,
+                                "Ещё" to Icons.Default.Tune,
                             ).forEachIndexed { i, (label, icon) ->
                                 NavigationBarItem(tab == i, { tab = i }, { Icon(icon, label) }, label = { Text(label) })
                             }
@@ -45,7 +51,7 @@ class MainActivity : ComponentActivity() {
                             0 -> TranslateScreen(vm)
                             1 -> CameraScreen(vm) { tab = 0 }
                             2 -> HistoryScreen(vm) { tab = 0 }
-                            else -> ModelsScreen(vm)
+                            else -> ModelsScreen(vm, update) { scope.launch { checkForUpdate(ctx, update, manual = true) } }
                         }
                     }
                 }

@@ -4,6 +4,7 @@ import android.app.Application
 import com.dozy.pocketai.data.ChatStore
 import com.dozy.pocketai.data.ModelRepository
 import com.dozy.pocketai.data.SettingsStore
+import com.dozy.pocketai.data.Updater
 import com.dozy.pocketai.llm.LlamaEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +16,7 @@ class PocketApp : Application() {
     lateinit var models: ModelRepository
     lateinit var settings: SettingsStore
     lateinit var chats: ChatStore
+    lateinit var updater: Updater
 
     override fun onCreate() {
         super.onCreate()
@@ -22,5 +24,7 @@ class PocketApp : Application() {
         models = ModelRepository(this, appScope)
         settings = SettingsStore(this)
         chats = ChatStore(this)
+        updater = Updater(this, appScope)
+        updater.check(silent = true)
     }
 }

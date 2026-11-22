@@ -47,6 +47,8 @@ jobs:
           gradle --no-daemon :app:assembleRelease
           mkdir -p out
           cp app/build/outputs/apk/release/app-release.apk "out/PocketAI-0.1.${{ github.run_number }}.apk"
+          # release notes = commit message (shown in the in-app update card)
+          git log -1 --format=%B | grep -v -e '^Co-Authored-By' -e '^Claude-Session' > out/notes.md
 
       - uses: actions/upload-artifact@v4
         with:
@@ -59,7 +61,7 @@ jobs:
           tag_name: pocketai-v0.1.${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           name: PocketAI 0.1.${{ github.run_number }}
-          body: "APK для Android (arm64). Скачай `PocketAI-0.1.${{ github.run_number }}.apk` ниже и установи."
+          body_path: out/notes.md
           files: out/*.apk
           # outside the PocketAI repo (temporary build host) never touch that repo's "latest" release
           prerelease: ${{ github.repository != 'dozyFJ/PocketAI' }}

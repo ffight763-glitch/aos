@@ -45,6 +45,9 @@ fun SettingsScreen(vm: ChatViewModel) {
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            SectionHeading("Обновления")
+            UpdateSection(vm.updater)
+
             SectionHeading("Оформление")
             PulseCard(Modifier.fillMaxWidth()) {
                 Segmented(listOf("Система", "Ночь", "День"), s.theme) { set(s.copy(theme = it)) }

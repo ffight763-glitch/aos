@@ -103,6 +103,8 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit) {
                 PillIcon(Icons.Outlined.Add, "Новый чат", primary = true) { vm.newChat() }
             }
 
+            UpdateBanner(vm.updater)
+
             ui.error?.let { err ->
                 Row(
                     Modifier

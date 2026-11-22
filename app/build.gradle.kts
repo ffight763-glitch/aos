@@ -19,6 +19,8 @@ android {
         targetSdk = 35
         versionCode = appVersionCode
         versionName = appVersionName
+        // where OTA updates are looked up (GitHub Releases); CI passes the repo it builds in
+        buildConfigField("String", "UPDATE_REPO", "\"${System.getenv("GITHUB_REPOSITORY") ?: "dozyFJ/PocketAI"}\"")
 
         ndk { abiFilters += listOf("arm64-v8a") }
         externalNativeBuild {

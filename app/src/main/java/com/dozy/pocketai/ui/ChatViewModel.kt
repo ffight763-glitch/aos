@@ -41,6 +41,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val pocket = app as PocketApp
     private val engine = pocket.engine
     val models = pocket.models
+    val updater = pocket.updater
 
     private val _settings = MutableStateFlow(pocket.settings.load())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()

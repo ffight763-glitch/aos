@@ -1,6 +1,7 @@
 package com.dozy.pocketai.web
 
 import com.dozy.pocketai.data.WebSource
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -55,13 +56,13 @@ object WebSearch {
         val key = query.trim().lowercase() + "#" + limit + "#" + engines.sorted() + blockRu
         synchronized(cache) { cache[key] }?.let { (t, hits) -> if (System.currentTimeMillis() - t < CACHE_MS) return@withContext hits }
         val want = limit + 4
-        val lists = coroutineScope {
-            listOfNotNull(
-                if ("google" in engines) async { runCatching { google(query, want) }.getOrDefault(emptyList()) } else null,
-                if ("bing" in engines) async { runCatching { bing(query, want) }.getOrDefault(emptyList()) } else null,
-                if ("duckduckgo" in engines) async { runCatching { duckDuckGo(query, want) }.getOrDefault(emptyList()) } else null,
-                if ("brave" in engines) async { runCatching { brave(query, want) }.getOrDefault(emptyList()) } else null,
-            ).awaitAll()
+        val lists: List<List<SearchHit>> = coroutineScope {
+            val jobs = ArrayList<Deferred<List<SearchHit>>>()
+            if ("google" in engines) jobs += async { runCatching { google(query, want) }.getOrDefault(emptyList()) }
+            if ("bing" in engines) jobs += async { runCatching { bing(query, want) }.getOrDefault(emptyList()) }
+            if ("duckduckgo" in engines) jobs += async { runCatching { duckDuckGo(query, want) }.getOrDefault(emptyList()) }
+            if ("brave" in engines) jobs += async { runCatching { brave(query, want) }.getOrDefault(emptyList()) }
+            jobs.awaitAll()
         }
         val merged = LinkedHashMap<String, SearchHit>()
         val longest = lists.maxOfOrNull { it.size } ?: 0

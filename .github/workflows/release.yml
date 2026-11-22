@@ -1,7 +1,9 @@
-# Builds a signed APK and publishes it as a GitHub Release "v<versionName>".
+# Builds a signed APK and publishes it as a GitHub Release "translatepro-v<versionName>".
+# Temporarily hosted in ffight763-glitch/aos, branch translatepro (prerelease, never "latest",
+# so the launcher's own releases are untouched).
 # The app checks releases/latest and offers the update (OTA).
 # To ship an update: bump versionCode + versionName in app/build.gradle.kts,
-# optionally write release-notes/<versionName>.md, push to main.
+# optionally write release-notes/<versionName>.md, push.
 #
 # Repo secrets needed (Settings -> Secrets and variables -> Actions):
 #   TP_KEYSTORE_B64  - base64 of the signing keystore (.jks)
@@ -11,7 +13,7 @@ name: Release APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, translatepro]
   workflow_dispatch:
 
 permissions:
@@ -28,7 +30,7 @@ jobs:
         run: |
           VER=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
           echo "version=$VER" >> "$GITHUB_OUTPUT"
-          if gh release view "v$VER" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+          if gh release view "translatepro-v$VER" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -63,4 +65,5 @@ jobs:
           VER=${{ steps.v.outputs.version }}
           NOTES="release-notes/$VER.md"
           if [ ! -f "$NOTES" ]; then git log -1 --pretty=%B > /tmp/notes.md; NOTES=/tmp/notes.md; fi
-          gh release create "v$VER" "translatePro-$VER.apk" --title "translatePro $VER" --notes-file "$NOTES" --latest
+          if [ "$GITHUB_REPOSITORY" = "dozyFJ/translatePro" ]; then FLAGS="--latest"; else FLAGS="--prerelease --latest=false"; fi
+          gh release create "translatepro-v$VER" "translatePro-$VER.apk" --target "$GITHUB_SHA" --title "translatePro $VER" --notes-file "$NOTES" $FLAGS

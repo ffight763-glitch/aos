@@ -8,6 +8,7 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -16,12 +17,14 @@ import java.net.URL
 data class Release(val version: String, val notes: String, val apkUrl: String, val size: Long)
 
 /**
- * OTA updates from GitHub Releases of dozyFJ/translatePro.
- * A release tag is "v<versionName>" (e.g. v1.2) with the .apk attached as an asset.
+ * OTA updates from GitHub Releases. Temporarily built and hosted in ffight763-glitch/aos
+ * (branch translatepro) with tags "translatepro-v<versionName>"; that repo also has other
+ * apps' releases, so we pick the newest one with our tag prefix.
  */
 object Updater {
-    private const val REPO = "dozyFJ/translatePro"
-    private const val API = "https://api.github.com/repos/$REPO/releases/latest"
+    private const val REPO = "ffight763-glitch/aos"
+    private const val TAG_PREFIX = "translatepro-v"
+    private const val API = "https://api.github.com/repos/$REPO/releases?per_page=50"
 
     val current: String get() = BuildConfig.VERSION_NAME
 
@@ -35,9 +38,17 @@ object Updater {
         try {
             if (c.responseCode == 404) return@withContext null // no releases yet
             if (c.responseCode != 200) error("GitHub ответил ${c.responseCode}")
-            val j = JSONObject(c.inputStream.bufferedReader().readText())
-            val version = j.getString("tag_name").removePrefix("v").removePrefix("V")
-            if (compare(version, current) <= 0) return@withContext null
+            val all = JSONArray(c.inputStream.bufferedReader().readText())
+            var j: JSONObject? = null
+            var version = current
+            for (i in 0 until all.length()) {
+                val r = all.getJSONObject(i)
+                val tag = r.getString("tag_name")
+                if (r.optBoolean("draft") || !tag.startsWith(TAG_PREFIX)) continue
+                val v = tag.removePrefix(TAG_PREFIX)
+                if (compare(v, version) > 0) { version = v; j = r }
+            }
+            if (j == null) return@withContext null
             val assets = j.getJSONArray("assets")
             for (i in 0 until assets.length()) {
                 val a = assets.getJSONObject(i)

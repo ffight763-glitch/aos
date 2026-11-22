@@ -30,7 +30,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import android.content.res.Configuration
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -109,18 +111,25 @@ fun DialogueScreen(vm: AppViewModel) {
         onMic = { onMic(mine) }, onPickLang = { picker = mine }
     )
 
-    val vertical = vm.dSplit == "vertical"
-    val themMod = Modifier.graphicsLayer { if (vm.dFlip) rotationZ = 180f }
+    // Auto-rotate: portrait = top/bottom, landscape = left/right. The button overrides it
+    // until the phone is turned again.
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    var lastLandscape by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(landscape) }
+    LaunchedEffect(landscape) { if (landscape != lastLandscape) { lastLandscape = landscape; vm.resetSplitToAuto() } }
+    val split = vm.dManual ?: if (landscape) "horizontal" else "vertical"
+    val vertical = split == "vertical"
+    val flip = if (vertical) vm.dFlipV else vm.dFlipH
+    val themMod = Modifier.graphicsLayer { if (flip) rotationZ = 180f }
     if (vertical) {
         Column(Modifier.fillMaxSize().padding(8.dp)) {
             Side(false, themMod.weight(1f).fillMaxWidth())
-            ControlBar(vm, horizontal = true)
+            ControlBar(vm, horizontal = true, split = split, flip = flip)
             Side(true, Modifier.weight(1f).fillMaxWidth())
         }
     } else {
         Row(Modifier.fillMaxSize().padding(8.dp)) {
             Side(true, Modifier.weight(1f).fillMaxHeight())
-            ControlBar(vm, horizontal = false)
+            ControlBar(vm, horizontal = false, split = split, flip = flip)
             Side(false, themMod.weight(1f).fillMaxHeight())
         }
     }
@@ -132,11 +141,11 @@ fun DialogueScreen(vm: AppViewModel) {
 }
 
 @Composable
-private fun ControlBar(vm: AppViewModel, horizontal: Boolean) {
+private fun ControlBar(vm: AppViewModel, horizontal: Boolean, split: String, flip: Boolean) {
     val items: List<Triple<androidx.compose.ui.graphics.vector.ImageVector, String, () -> Unit>> = listOf(
-        Triple(if (vm.dSplit == "vertical") Icons.Default.ViewColumn else Icons.Default.ViewAgenda,
-            if (vm.dSplit == "vertical") "Лево / право" else "Верх / низ", vm::toggleSplit),
-        Triple(Icons.Default.ScreenRotation, "Развернуть собеседника", vm::toggleFlip),
+        Triple(if (split == "vertical") Icons.Default.ViewColumn else Icons.Default.ViewAgenda,
+            if (split == "vertical") "Лево / право" else "Верх / низ") { vm.toggleSplit(split) },
+        Triple(Icons.Default.Flip, "Развернуть собеседника") { vm.toggleFlip(split == "vertical") },
         Triple(Icons.Default.SwapHoriz, "Поменять языки", vm::swapDLangs),
         Triple(if (vm.dAutoSpeak) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
             "Автоозвучка", vm::toggleAutoSpeak),
@@ -145,7 +154,7 @@ private fun ControlBar(vm: AppViewModel, horizontal: Boolean) {
     val content: @Composable () -> Unit = {
         items.forEach { (icon, desc, action) ->
             IconButton(onClick = action) {
-                Icon(icon, desc, tint = if (desc == "Развернуть собеседника" && vm.dFlip) Accent
+                Icon(icon, desc, tint = if (desc == "Развернуть собеседника" && flip) Accent
                     else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

@@ -164,10 +164,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var dThem by mutableStateOf(prefs.getString("dthem", null) ?: if (defaultMe() == "en") "de" else "en")
         private set
-    /** "vertical" = top/bottom (other person's half faces them), "horizontal" = left/right */
-    var dSplit by mutableStateOf(prefs.getString("dsplit", "vertical")!!)
+    /** Manual layout override: null = follow the phone's rotation (portrait = top/bottom, landscape = left/right). */
+    var dManual by mutableStateOf<String?>(prefs.getString("dmanual", null))
         private set
-    var dFlip by mutableStateOf(prefs.getBoolean("dflip", true))
+    /** "Turn the other person's half to face them", kept separately for each layout. */
+    var dFlipV by mutableStateOf(prefs.getBoolean("dflipv", true))
+        private set
+    var dFlipH by mutableStateOf(prefs.getBoolean("dfliph", false))
         private set
     var dAutoSpeak by mutableStateOf(prefs.getBoolean("dspeak", true))
         private set
@@ -178,12 +181,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putString("dme", dMe).putString("dthem", dThem).apply()
     }
     fun swapDLangs() { val a = dMe; dMe = dThem; dThem = a; prefs.edit().putString("dme", dMe).putString("dthem", dThem).apply() }
-    fun toggleSplit() {
-        dSplit = if (dSplit == "vertical") "horizontal" else "vertical"
-        dFlip = dSplit == "vertical"
-        prefs.edit().putString("dsplit", dSplit).putBoolean("dflip", dFlip).apply()
+    /** Button: switch top/bottom <-> left/right by hand, from whatever is shown now. */
+    fun toggleSplit(current: String) {
+        dManual = if (current == "vertical") "horizontal" else "vertical"
+        prefs.edit().putString("dmanual", dManual).apply()
     }
-    fun toggleFlip() { dFlip = !dFlip; prefs.edit().putBoolean("dflip", dFlip).apply() }
+    /** The phone was turned: go back to following the rotation. */
+    fun resetSplitToAuto() { if (dManual != null) { dManual = null; prefs.edit().remove("dmanual").apply() } }
+    fun toggleFlip(vertical: Boolean) {
+        if (vertical) dFlipV = !dFlipV else dFlipH = !dFlipH
+        prefs.edit().putBoolean("dflipv", dFlipV).putBoolean("dfliph", dFlipH).apply()
+    }
     fun toggleAutoSpeak() { dAutoSpeak = !dAutoSpeak; prefs.edit().putBoolean("dspeak", dAutoSpeak).apply() }
     fun clearDialogue() = dMsgs.clear()
 

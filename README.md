@@ -12,6 +12,6 @@
 Сборка: `./gradlew assembleRelease`
 
 ## OTA-обновления
-Приложение проверяет GitHub Releases этого репозитория (`releases/latest`, тег `v<versionName>`, APK во вложении).
+Приложение проверяет GitHub Releases (временно — ffight763-glitch/aos, ветка `translatepro`, теги `translatepro-v<versionName>`, APK во вложении).
 Чтобы выпустить обновление: поднять `versionCode` и `versionName` в `app/build.gradle.kts`, при желании добавить `release-notes/<версия>.md` и запушить в `main` — workflow `Release APK` соберёт и опубликует релиз.
 Нужны секреты репозитория `TP_KEYSTORE_B64`, `TP_KEYSTORE_PASS`, `TP_KEY_ALIAS` (ключ должен быть тем же, что у установленной версии).

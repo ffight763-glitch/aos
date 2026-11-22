@@ -45,6 +45,7 @@ fun PulseHeader(
     title: String,
     subtitle: String? = null,
     leading: (@Composable RowScope.() -> Unit)? = null,
+    onTitleClick: (() -> Unit)? = null,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
     val p = LocalPulse.current
@@ -62,9 +63,16 @@ fun PulseHeader(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         leading?.invoke(this)
-        Column(Modifier.weight(1f)) {
+        Column(
+            Modifier.weight(1f).then(
+                if (onTitleClick != null) Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onTitleClick) else Modifier,
+            ),
+        ) {
             Text(title, color = p.ink, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (subtitle != null) Text(subtitle, color = p.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (subtitle != null) Text(
+                subtitle + if (onTitleClick != null) "  ▾" else "",
+                color = p.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
         trailing()
     }

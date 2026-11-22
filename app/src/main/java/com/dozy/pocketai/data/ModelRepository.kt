@@ -1,19 +1,14 @@
 package com.dozy.pocketai.data
 
-import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -74,12 +69,12 @@ data class LocalModel(val file: File) {
     val sizeMb get() = file.length() / (1024 * 1024)
 }
 
-data class DownloadState(val fileName: String, val progress: Float, val bytes: Long, val total: Long)
+data class DownloadState(val fileName: String, val progress: Float, val bytes: Long, val total: Long, val bytesPerSec: Long = 0)
 
 class ModelRepository(private val context: Context, private val scope: CoroutineScope) {
     val dir: File = (context.getExternalFilesDir("models") ?: File(context.filesDir, "models")).apply { mkdirs() }
-    private val prefs = context.getSharedPreferences("downloads", Context.MODE_PRIVATE)
-    private val dm = context.getSystemService(DownloadManager::class.java)
+    private val prefs = context.getSharedPreferences("downloads2", Context.MODE_PRIVATE)
+    private val downloader = FastDownloader(scope)
 
     private val _local = MutableStateFlow<List<LocalModel>>(emptyList())
     val local: StateFlow<List<LocalModel>> = _local.asStateFlow()
@@ -90,11 +85,10 @@ class ModelRepository(private val context: Context, private val scope: Coroutine
     private val _errors = MutableStateFlow<String?>(null)
     val errors: StateFlow<String?> = _errors.asStateFlow()
 
-    private var poller: Job? = null
-
     init {
         refresh()
-        if (prefs.all.isNotEmpty()) startPolling()
+        // resume downloads interrupted by a restart
+        prefs.all.forEach { (name, url) -> if (url is String) download(url, name) }
     }
 
     fun clearError() { _errors.value = null }
@@ -109,26 +103,30 @@ class ModelRepository(private val context: Context, private val scope: Coroutine
     fun download(url: String, fileNameHint: String? = null) {
         val name = (fileNameHint ?: url.substringAfterLast('/').substringBefore('?'))
             .let { if (it.endsWith(".gguf", true)) it else "$it.gguf" }
-        if (_downloads.value.containsKey(name)) return
-        File(dir, "$name.part").delete()
-        val req = DownloadManager.Request(Uri.parse(url))
-            .setTitle("PocketAI: $name")
-            .setDescription("Загрузка модели")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-            .setDestinationUri(Uri.fromFile(File(dir, "$name.part")))
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(true)
-        val id = dm.enqueue(req)
-        prefs.edit().putLong(name, id).apply()
-        _downloads.update { it + (name to DownloadState(name, 0f, 0, 0)) }
-        startPolling()
+        val dest = File(dir, name)
+        if (downloader.isRunning(dest)) return
+        prefs.edit().putString(name, url).apply()
+        _downloads.update { it + (name to (it[name] ?: DownloadState(name, 0f, 0, 0))) }
+        DownloadService.start(context)
+        downloader.start(
+            url, dest,
+            onProgress = { pr ->
+                _downloads.update {
+                    it + (name to DownloadState(name, if (pr.total > 0) pr.done.toFloat() / pr.total else 0f, pr.done, pr.total, pr.bytesPerSec))
+                }
+            },
+            onDone = { r ->
+                prefs.edit().remove(name).apply()
+                _downloads.update { it - name }
+                r.onFailure { e -> _errors.value = "Загрузка $name не удалась: ${e.message}" }
+                refresh()
+            },
+        )
     }
 
     fun cancel(fileName: String) {
-        val id = prefs.getLong(fileName, -1)
-        if (id >= 0) dm.remove(id)
+        downloader.cancel(File(dir, fileName))
         prefs.edit().remove(fileName).apply()
-        File(dir, "$fileName.part").delete()
         _downloads.update { it - fileName }
     }
 
@@ -155,55 +153,4 @@ class ModelRepository(private val context: Context, private val scope: Coroutine
             out
         }
     }
-
-    private fun startPolling() {
-        if (poller?.isActive == true) return
-        poller = scope.launch(Dispatchers.IO) {
-            while (isActive) {
-                val entries = prefs.all.mapNotNull { (k, v) -> (v as? Long)?.let { k to it } }
-                if (entries.isEmpty()) { _downloads.value = emptyMap(); break }
-                val states = mutableMapOf<String, DownloadState>()
-                for ((name, id) in entries) {
-                    val st = query(id)
-                    if (st == null) {
-                        prefs.edit().remove(name).apply()
-                        File(dir, "$name.part").delete()
-                        continue
-                    }
-                    when (st.status) {
-                        DownloadManager.STATUS_SUCCESSFUL -> {
-                            File(dir, "$name.part").renameTo(File(dir, name))
-                            prefs.edit().remove(name).apply()
-                            refresh()
-                        }
-                        DownloadManager.STATUS_FAILED -> {
-                            prefs.edit().remove(name).apply()
-                            File(dir, "$name.part").delete()
-                            _errors.value = "Загрузка $name не удалась (код ${st.reason})"
-                        }
-                        else -> states[name] = DownloadState(
-                            name,
-                            if (st.total > 0) st.done.toFloat() / st.total else 0f,
-                            st.done, st.total,
-                        )
-                    }
-                }
-                _downloads.value = states
-                delay(700)
-            }
-        }
-    }
-
-    private data class Q(val status: Int, val done: Long, val total: Long, val reason: Int)
-
-    private fun query(id: Long): Q? =
-        dm.query(DownloadManager.Query().setFilterById(id))?.use { c ->
-            if (!c.moveToFirst()) return null
-            Q(
-                c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)),
-                c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)),
-                c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)),
-                c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)),
-            )
-        }
 }

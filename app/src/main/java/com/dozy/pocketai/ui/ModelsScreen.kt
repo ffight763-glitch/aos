@@ -173,7 +173,8 @@ private fun CatalogCard(
                 color = p.accent, trackColor = p.inset,
             )
             Text(
-                if (dl.total > 0) "%d / %d МБ".format(dl.bytes shr 20, dl.total shr 20) else "Подключение…",
+                if (dl.total > 0) "%d / %d МБ · %.1f МБ/с · 6 потоков".format(dl.bytes shr 20, dl.total shr 20, dl.bytesPerSec / 1048576.0)
+                else "Подключение…",
                 color = p.muted, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp),
             )
         }

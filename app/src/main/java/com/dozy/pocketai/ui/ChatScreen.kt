@@ -83,6 +83,8 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openSettings: () -> Un
     val scope = rememberCoroutineScope()
     val gh by vm.github.state.collectAsStateWithLifecycle()
     var repoSheet by remember { mutableStateOf(false) }
+    var modelSheet by remember { mutableStateOf(false) }
+    if (modelSheet) ModelSheet(vm, onMore = openModels, onDismiss = { modelSheet = false })
     if (repoSheet) RepoSheet(
         vm.github, gh.attachment,
         onDone = { vm.github.attach(it); repoSheet = false },
@@ -107,6 +109,7 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openSettings: () -> Un
                 title = if (ui.conversation.messages.isEmpty()) "PocketAI" else ui.conversation.title,
                 subtitle = (if (ui.codeMode) "codProd · " else "") + (ui.modelName ?: "Модель не загружена"),
                 leading = { PillIcon(Icons.Outlined.Menu, "Чаты", size = 38.dp) { scope.launch { drawer.open() } } },
+                onTitleClick = { modelSheet = true },
             ) {
                 PillIcon(Icons.Outlined.Code, "codProd", active = ui.codeMode, size = 38.dp) { vm.toggleCode() }
                 PillIcon(Icons.Outlined.Language, "Интернет", active = ui.webEnabled, size = 38.dp) { vm.toggleWeb() }

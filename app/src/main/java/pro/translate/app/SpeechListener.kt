@@ -18,6 +18,8 @@ class SpeechListener(private val ctx: Context) {
     private var onDeviceTried = false
     var active = false
         private set
+    /** Silence that ends a phrase. Shorter = translation is spoken sooner. */
+    var pauseMs = 1000L
 
     fun available(): Boolean = SpeechRecognizer.isRecognitionAvailable(ctx) ||
         (Build.VERSION.SDK_INT >= 33 && SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx))
@@ -92,8 +94,8 @@ class SpeechListener(private val ctx: Context) {
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, onDevice)
             .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, ctx.packageName)
-            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1800L)
-            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L))
+            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, pauseMs)
+            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, pauseMs - 200))
     }
 
     /** Ends listening now; whatever was heard comes as a final result. */

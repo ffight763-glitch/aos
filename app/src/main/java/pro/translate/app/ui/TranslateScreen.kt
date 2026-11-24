@@ -1,6 +1,12 @@
 package pro.translate.app.ui
 
 import android.content.ActivityNotFoundException
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.scale
+import androidx.core.content.ContextCompat
+import pro.translate.app.SpeechListener
 import android.content.Intent
 import android.speech.RecognizerIntent
 import android.widget.Toast
@@ -37,24 +43,68 @@ fun TranslateScreen(vm: AppViewModel) {
 
     LaunchedEffect(Unit) { vm.refreshModels() }
 
-    val voice = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+    // ---- live voice: words appear and get translated while you speak; spoken right after the pause ----
+    val listener = remember { SpeechListener(ctx) }
+    var session by remember { mutableStateOf(false) }   // mic is "on" (may be waiting while TTS speaks)
+    var hearing by remember { mutableStateOf(false) }   // recogniser is actually listening
+    var ready by remember { mutableStateOf(false) }
+    var level by remember { mutableFloatStateOf(0f) }
+    var misses by remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) { onDispose { listener.stop(); vm.speaker.stop() } }
+    LaunchedEffect(vm.from, vm.to) { vm.warmUp(vm.voiceLang(), vm.to) }
+
+    val voiceDialog = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val text = r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-        if (!text.isNullOrBlank()) {
-            vm.updateInput(if (vm.input.isBlank()) text else vm.input.trimEnd() + " " + text)
+        if (!text.isNullOrBlank()) vm.voiceFinal(text, vm.voiceLang()) {}
+    }
+
+    fun listenOnce() {
+        val lang = vm.voiceLang()
+        hearing = true; ready = false
+        listener.start(lang,
+            onReady = { ready = true },
+            onLevel = { level = it },
+            onPartial = { vm.voicePartial(it, lang) },
+            onFinal = { t ->
+                hearing = false; level = 0f; misses = 0
+                vm.voiceFinal(t, lang) { if (session && vm.vContinuous) listenOnce() else session = false }
+            },
+            onError = { e ->
+                hearing = false; level = 0f
+                val silent = e == "Ничего не расслышал"
+                if (session && vm.vContinuous && silent && ++misses < 4) listenOnce()
+                else { session = false; misses = 0; if (!silent) Toast.makeText(ctx, e, Toast.LENGTH_SHORT).show() }
+            })
+    }
+
+    fun startSession() {
+        vm.speaker.stop()
+        if (!listener.available()) {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE, SpeechListener.speechTag(vm.voiceLang()))
+            try { voiceDialog.launch(intent) } catch (_: ActivityNotFoundException) {
+                Toast.makeText(ctx, "На телефоне нет сервиса распознавания речи (нужно приложение Google)", Toast.LENGTH_LONG).show()
+            }
+            return
         }
+        session = true; misses = 0
+        listenOnce()
+    }
+
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) startSession() else Toast.makeText(ctx, "Без доступа к микрофону голос не работает", Toast.LENGTH_SHORT).show()
     }
 
     fun startVoice() {
-        val lang = if (vm.from == AUTO) vm.detected else vm.from
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Говорите…")
-            if (lang != null) putExtra(RecognizerIntent.EXTRA_LANGUAGE, Languages.locale(lang).toLanguageTag())
+        if (session) { // tap again = stop; what was heard so far is still translated and spoken
+            session = false
+            if (hearing) listener.finishNow() else vm.speaker.stop()
+            return
         }
-        try { voice.launch(intent) } catch (_: ActivityNotFoundException) {
-            Toast.makeText(ctx, "На телефоне нет сервиса распознавания речи (нужно приложение Google)", Toast.LENGTH_LONG).show()
-        }
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        else startSession()
     }
 
     fun speak(text: String, lang: String?) {
@@ -91,7 +141,16 @@ fun TranslateScreen(vm: AppViewModel) {
                 )
             )
             Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                FilledIconButton(onClick = ::startVoice, Modifier.size(48.dp)) { Icon(Icons.Default.Mic, "Голос") }
+                val pulse by animateFloatAsState(if (hearing) 1f + level * 0.3f else 1f, label = "mic")
+                FilledIconButton(onClick = ::startVoice, Modifier.size(52.dp).scale(pulse),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = if (session) Color(0xFFE5484D) else MaterialTheme.colorScheme.primary)) {
+                    if (session && hearing && !ready) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                    else Icon(if (session) Icons.Default.Stop else Icons.Default.Mic, if (session) "Стоп" else "Голос")
+                }
+                Spacer(Modifier.width(4.dp))
+                FilterChip(selected = vm.vContinuous, onClick = vm::toggleContinuous,
+                    label = { Text("Синхрон") }, leadingIcon = { Icon(Icons.Default.Autorenew, null, Modifier.size(16.dp)) })
                 Spacer(Modifier.width(4.dp))
                 IconButton(onClick = { speak(vm.input, if (vm.from == AUTO) vm.detected else vm.from) }, enabled = vm.input.isNotBlank()) {
                     Icon(Icons.AutoMirrored.Filled.VolumeUp, "Озвучить")
@@ -104,6 +163,12 @@ fun TranslateScreen(vm: AppViewModel) {
             }
         }
 
+        if (session) Text(
+            when {
+                hearing && ready -> "Слушаю (${Languages.displayName(vm.voiceLang())})… переведу и озвучу после паузы"
+                hearing -> "Включаю микрофон…"
+                else -> "Озвучиваю перевод…"
+            }, Modifier.padding(top = 8.dp, start = 4.dp), color = Accent, style = MaterialTheme.typography.bodySmall)
         if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp).height(2.dp))
         vm.status?.let {
             Text(it, Modifier.padding(top = 8.dp, start = 4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -26,8 +26,31 @@ class TranslatorEngine {
     suspend fun isDownloaded(code: String): Boolean =
         runCatching { models.isModelDownloaded(model(code)).await() }.getOrDefault(false)
 
+    private val cache = object : LinkedHashMap<String, String>(128, 0.75f, true) {
+        override fun removeEldestEntry(e: MutableMap.MutableEntry<String, String>?) = size > 200
+    }
+
+    /** Cached result (no work) or null. */
+    fun cached(text: String, from: String, to: String): String? =
+        synchronized(cache) { cache["$from|$to|${text.trim()}"] }
+
+    /** Loads the models into memory so the first real phrase translates instantly. */
+    suspend fun warmUp(from: String, to: String) {
+        if (from == to) return
+        if (!isDownloaded(from) || !isDownloaded(to)) return
+        runCatching { translate("hello", from, to) }
+    }
+
     suspend fun translate(text: String, from: String, to: String): String {
         if (from == to || text.isBlank()) return text
+        val key = "$from|$to|${text.trim()}"
+        synchronized(cache) { cache[key] }?.let { return it }
+        val r = rawTranslate(text, from, to)
+        synchronized(cache) { cache[key] = r }
+        return r
+    }
+
+    private suspend fun rawTranslate(text: String, from: String, to: String): String {
         val t = synchronized(translators) {
             translators.getOrPut(from to to) {
                 Translation.getClient(

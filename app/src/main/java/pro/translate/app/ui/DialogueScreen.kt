@@ -53,8 +53,11 @@ fun DialogueScreen(vm: AppViewModel) {
     var level by remember { mutableFloatStateOf(0f) }
     var pendingSide by remember { mutableStateOf<Boolean?>(null) }
     var picker by remember { mutableStateOf<Boolean?>(null) }
+    var convo by remember { mutableStateOf(false) } // auto turns running
+    var misses by remember { mutableIntStateOf(0) }
+    LaunchedEffect(vm.dMe, vm.dThem) { vm.warmUp(vm.dMe, vm.dThem); vm.warmUp(vm.dThem, vm.dMe) }
 
-    DisposableEffect(Unit) { onDispose { listener.stop() } }
+    DisposableEffect(Unit) { onDispose { listener.stop(); vm.speaker.stop(); vm.dClearLive() } }
     LaunchedEffect(Unit) { vm.refreshModels() }
 
     // Fallback: the system voice dialog when SpeechRecognizer isn't available.
@@ -82,10 +85,17 @@ fun DialogueScreen(vm: AppViewModel) {
         listener.start(lang,
             onReady = { ready = true },
             onLevel = { level = it },
-            onPartial = { partial = it },
-            onFinal = { t -> listening = null; partial = ""; level = 0f; vm.dSend(mine, t) },
-            onError = { e -> listening = null; partial = ""; level = 0f
-                Toast.makeText(ctx, e, Toast.LENGTH_SHORT).show() })
+            onPartial = { partial = it; vm.dPartial(mine, it) },
+            onFinal = { t ->
+                listening = null; partial = ""; level = 0f; misses = 0
+                vm.dSend(mine, t) { if (convo && vm.dAutoTurn) listen(!mine) else convo = false }
+            },
+            onError = { e ->
+                listening = null; partial = ""; level = 0f; vm.dClearLive()
+                val silent = e == "Ничего не расслышал"
+                if (convo && vm.dAutoTurn && silent && ++misses < 3) listen(mine)
+                else { convo = false; misses = 0; if (!silent || !vm.dAutoTurn) Toast.makeText(ctx, e, Toast.LENGTH_SHORT).show() }
+            })
     }
 
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
@@ -95,7 +105,12 @@ fun DialogueScreen(vm: AppViewModel) {
     }
 
     fun onMic(mine: Boolean) {
-        if (listening == mine) { listener.finishNow(); return } // second tap = done
+        if (listening == mine) {
+            if (partial.isBlank()) { convo = false; listener.stop(); listening = null; vm.dClearLive() } // nothing said: stop
+            else listener.finishNow() // second tap = done, translate now
+            return
+        }
+        convo = vm.dAutoTurn
         if (listening != null) { listener.stop(); listening = null; partial = "" }
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             pendingSide = mine; micPermission.launch(Manifest.permission.RECORD_AUDIO); return
@@ -107,6 +122,7 @@ fun DialogueScreen(vm: AppViewModel) {
     fun Side(mine: Boolean, modifier: Modifier) = DialoguePanel(
         vm = vm, mine = mine, modifier = modifier,
         listening = listening == mine, ready = ready, partial = if (listening == mine) partial else "",
+        liveTranslation = if (vm.dLiveMine == !mine) vm.dLiveTr else "",
         level = if (listening == mine) level else 0f,
         onMic = { onMic(mine) }, onPickLang = { picker = mine }
     )
@@ -149,12 +165,13 @@ private fun ControlBar(vm: AppViewModel, horizontal: Boolean, split: String, fli
         Triple(Icons.Default.SwapHoriz, "Поменять языки", vm::swapDLangs),
         Triple(if (vm.dAutoSpeak) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
             "Автоозвучка", vm::toggleAutoSpeak),
+        Triple(Icons.Default.Autorenew, "Автоочередь", vm::toggleAutoTurn),
         Triple(Icons.Default.DeleteSweep, "Очистить", vm::clearDialogue),
     )
     val content: @Composable () -> Unit = {
         items.forEach { (icon, desc, action) ->
             IconButton(onClick = action) {
-                Icon(icon, desc, tint = if (desc == "Развернуть собеседника" && flip) Accent
+                Icon(icon, desc, tint = if ((desc == "Развернуть собеседника" && flip) || (desc == "Автоочередь" && vm.dAutoTurn)) Accent
                     else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -166,7 +183,7 @@ private fun ControlBar(vm: AppViewModel, horizontal: Boolean, split: String, fli
 @Composable
 private fun DialoguePanel(
     vm: AppViewModel, mine: Boolean, modifier: Modifier,
-    listening: Boolean, ready: Boolean, partial: String, level: Float,
+    listening: Boolean, ready: Boolean, partial: String, liveTranslation: String, level: Float,
     onMic: () -> Unit, onPickLang: () -> Unit,
 ) {
     val color = if (mine) Accent else ThemColor
@@ -175,8 +192,8 @@ private fun DialoguePanel(
     var text by remember { mutableStateOf("") }
     val state = rememberLazyListState()
     val msgs = vm.dMsgs
-    LaunchedEffect(msgs.size, msgs.lastOrNull()?.translated, partial) {
-        val n = msgs.size + (if (partial.isNotEmpty()) 1 else 0)
+    LaunchedEffect(msgs.size, msgs.lastOrNull()?.translated, partial, liveTranslation) {
+        val n = msgs.size + (if (partial.isNotEmpty() || liveTranslation.isNotEmpty()) 1 else 0)
         if (n > 0) state.animateScrollToItem(n - 1)
     }
 
@@ -192,7 +209,7 @@ private fun DialoguePanel(
             }
 
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = state, contentPadding = PaddingValues(10.dp)) {
-                if (msgs.isEmpty() && partial.isEmpty()) item {
+                if (msgs.isEmpty() && partial.isEmpty() && liveTranslation.isEmpty()) item {
                     Text(if (mine) "Нажмите микрофон и говорите на языке «${Languages.displayName(lang)}»"
                         else "Нажмите микрофон — собеседник говорит на «${Languages.displayName(lang)}»",
                         color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium,
@@ -210,6 +227,11 @@ private fun DialoguePanel(
                             else -> m.translated?.let { vm.speaker.speak(it, Languages.locale(lang)) }
                         }
                     }
+                }
+                if (liveTranslation.isNotEmpty()) item("live") {
+                    // the other person is speaking: their words, already in my language
+                    Text(liveTranslation, Modifier.fillMaxWidth().padding(8.dp), fontStyle = FontStyle.Italic,
+                        color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleLarge)
                 }
                 if (partial.isNotEmpty()) item("partial") {
                     Text(partial, Modifier.fillMaxWidth().padding(8.dp), fontStyle = FontStyle.Italic,

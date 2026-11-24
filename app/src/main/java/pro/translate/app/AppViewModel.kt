@@ -63,38 +63,82 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putString("from", from).putString("to", to).apply()
     }
 
-    private fun retranslate(debounce: Long) {
+    private fun retranslate(
+        debounce: Long,
+        srcOverride: String? = null,
+        save: Boolean = true,
+        onDone: ((String?) -> Unit)? = null,
+    ) {
         job?.cancel()
         val text = input
-        if (text.isBlank()) { output = ""; detected = null; busy = false; status = null; return }
+        if (text.isBlank()) { output = ""; detected = null; busy = false; status = null; onDone?.invoke(null); return }
+        val target = to
         job = viewModelScope.launch {
+            // instant answer from the cache (a voice phrase usually was already translated as a partial)
+            val src0 = srcOverride ?: from.takeIf { it != AUTO }
+            if (src0 != null) engine.cached(text, src0, target)?.let { hit ->
+                if (from == AUTO) detected = src0
+                output = hit; status = null
+                onDone?.invoke(hit)
+                if (save) { if (onDone == null) delay(1500); history.add(src0, target, text, hit) }
+                return@launch
+            }
             delay(debounce)
             busy = true
+            var res: String? = null
             try {
-                val src = if (from == AUTO) {
+                val src = srcOverride?.also { if (from == AUTO) detected = it } ?: if (from == AUTO) {
                     engine.detect(text).also { detected = it } ?: run {
                         status = "Не удалось определить язык — выберите его вручную"
                         return@launch
                     }
                 } else from
-                val need = listOf(src, to).filterNot { engine.isDownloaded(it) }
+                val need = listOf(src, target).filterNot { engine.isDownloaded(it) }
                 status = if (need.isNotEmpty())
                     "Скачиваю модель: ${need.joinToString { Languages.displayName(it) }} (один раз, ~30 МБ)…"
                 else null
-                val res = engine.translate(text, src, to)
+                res = engine.translate(text, src, target)
                 output = res
                 status = null
-                delay(1500)
-                history.add(src, to, text, res)
+                busy = false
+                onDone?.invoke(res)
+                if (save) { if (onDone == null) delay(1500); history.add(src, target, text, res) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 status = "Ошибка: ${e.message ?: e.javaClass.simpleName}. Для первой загрузки модели нужен интернет."
+                onDone?.invoke(null)
             } finally {
                 busy = false
             }
         }
     }
+
+    // ---- live voice on the translate screen ----
+    /** Keep listening phrase after phrase (like an interpreter) until the mic is tapped again. */
+    var vContinuous by mutableStateOf(prefs.getBoolean("vcont", true))
+        private set
+    fun toggleContinuous() { vContinuous = !vContinuous; prefs.edit().putBoolean("vcont", vContinuous).apply() }
+
+    /** Language the user speaks into the mic. */
+    fun voiceLang(): String = if (from != AUTO) from else detected ?: run {
+        val sys = java.util.Locale.getDefault().language
+        if (Languages.all.any { it.code == sys } && sys != to) sys else if (to == "en") "ru" else "en"
+    }
+
+    /** Words as they are being said: translated on the fly, nothing saved or spoken yet. */
+    fun voicePartial(text: String, lang: String) { input = text; retranslate(80, lang, save = false) }
+
+    /** The phrase is complete: translate (usually already in the cache) and speak it at once. */
+    fun voiceFinal(text: String, lang: String, after: () -> Unit) {
+        input = text
+        retranslate(0, lang, save = true) { res ->
+            if (res.isNullOrBlank()) after() else speaker.speak(res, Languages.locale(to), after)
+        }
+    }
+
+    /** Preloads the current pair so the first phrase isn't slow. */
+    fun warmUp(a: String, b: String) = viewModelScope.launch { engine.warmUp(a, b) }
 
     // ---- camera screen ----
     var photo by mutableStateOf<Bitmap?>(null)
@@ -195,20 +239,56 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleAutoSpeak() { dAutoSpeak = !dAutoSpeak; prefs.edit().putBoolean("dspeak", dAutoSpeak).apply() }
     fun clearDialogue() = dMsgs.clear()
 
-    fun dSend(mine: Boolean, text: String) {
-        val t = text.trim(); if (t.isEmpty()) return
+    /** Auto turns: after a phrase is spoken, the mic opens for the other person. */
+    var dAutoTurn by mutableStateOf(prefs.getBoolean("dturn", false))
+        private set
+    fun toggleAutoTurn() { dAutoTurn = !dAutoTurn; prefs.edit().putBoolean("dturn", dAutoTurn).apply() }
+
+    /** Live phrase being said right now and its on-the-fly translation (shown on the other half). */
+    var dLiveMine by mutableStateOf<Boolean?>(null)
+        private set
+    var dLiveText by mutableStateOf("")
+        private set
+    var dLiveTr by mutableStateOf("")
+        private set
+    private var liveJob: Job? = null
+
+    fun dPartial(mine: Boolean, text: String) {
+        dLiveMine = mine; dLiveText = text
+        val src = if (mine) dMe else dThem
+        val dst = if (mine) dThem else dMe
+        engine.cached(text, src, dst)?.let { dLiveTr = it; return }
+        liveJob?.cancel()
+        liveJob = viewModelScope.launch {
+            delay(60)
+            runCatching { engine.translate(text, src, dst) }.getOrNull()?.let { if (dLiveText == text) dLiveTr = it }
+        }
+    }
+
+    fun dClearLive() { liveJob?.cancel(); dLiveMine = null; dLiveText = ""; dLiveTr = "" }
+
+    /** Adds a phrase, translates it and speaks it; [after] runs once it has been said (or failed). */
+    fun dSend(mine: Boolean, text: String, after: (() -> Unit)? = null) {
+        val t = text.trim(); if (t.isEmpty()) { after?.invoke(); return }
+        dClearLive()
         val id = System.nanoTime()
         val src = if (mine) dMe else dThem
         val dst = if (mine) dThem else dMe
-        dMsgs += DMsg(id, mine, t, null)
+        val hit = engine.cached(t, src, dst)
+        dMsgs += DMsg(id, mine, t, hit)
+        if (hit != null) {
+            if (dAutoSpeak) speaker.speak(hit, Languages.locale(dst), after) else after?.invoke()
+            history.add(src, dst, t, hit)
+            return
+        }
         viewModelScope.launch {
             val res = try { engine.translate(t, src, dst) } catch (e: Exception) { null }
             val i = dMsgs.indexOfFirst { it.id == id }
             if (i >= 0) dMsgs[i] = dMsgs[i].copy(translated = res, failed = res == null)
             if (res != null) {
                 history.add(src, dst, t, res)
-                if (dAutoSpeak) speaker.speak(res, Languages.locale(dst))
-            }
+                if (dAutoSpeak) speaker.speak(res, Languages.locale(dst), after) else after?.invoke()
+            } else after?.invoke()
         }
     }
 

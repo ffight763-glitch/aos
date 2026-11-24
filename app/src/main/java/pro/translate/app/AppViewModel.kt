@@ -114,6 +114,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---- voice settings ----
+    /** Pause (ms) after which a spoken phrase counts as finished. */
+    var vWait by mutableStateOf(prefs.getLong("vwait", 2500L))
+        private set
+    fun setWait(ms: Long) { vWait = ms; prefs.edit().putLong("vwait", ms).apply() }
+    /** Amplify quiet speech. */
+    var vBoost by mutableStateOf(prefs.getBoolean("vboost", true))
+        private set
+    fun toggleBoost() { vBoost = !vBoost; prefs.edit().putBoolean("vboost", vBoost).apply() }
+    fun configure(l: SpeechListener) { l.waitMs = vWait; l.boost = vBoost }
+
     // ---- live voice on the translate screen ----
     /** Keep listening phrase after phrase (like an interpreter) until the mic is tapped again. */
     var vContinuous by mutableStateOf(prefs.getBoolean("vcont", true))
@@ -236,6 +247,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (vertical) dFlipV = !dFlipV else dFlipH = !dFlipH
         prefs.edit().putBoolean("dflipv", dFlipV).putBoolean("dfliph", dFlipH).apply()
     }
+    /** Dialogue turns with the phone even when the system rotation lock is on. */
+    var dRotate by mutableStateOf(prefs.getBoolean("drotate", true))
+        private set
+    fun toggleRotate() { dRotate = !dRotate; prefs.edit().putBoolean("drotate", dRotate).apply() }
     fun toggleAutoSpeak() { dAutoSpeak = !dAutoSpeak; prefs.edit().putBoolean("dspeak", dAutoSpeak).apply() }
     fun clearDialogue() = dMsgs.clear()
 
@@ -291,6 +306,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             } else after?.invoke()
         }
     }
+
+    fun dDeleteLast() { if (dMsgs.isNotEmpty()) dMsgs.removeAt(dMsgs.lastIndex) }
+    fun dDelete(id: Long) { dMsgs.removeAll { it.id == id } }
 
     fun dRetry(m: DMsg) { dMsgs.removeAll { it.id == m.id }; dSend(m.mine, m.original) }
 

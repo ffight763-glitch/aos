@@ -19,6 +19,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Backspace
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
@@ -31,6 +33,10 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import android.content.pm.ActivityInfo
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -63,6 +69,13 @@ fun DialogueScreen(vm: AppViewModel) {
     LaunchedEffect(vm.dMe, vm.dThem) { vm.warmUp(vm.dMe, vm.dThem); vm.warmUp(vm.dThem, vm.dMe) }
 
     DisposableEffect(Unit) { onDispose { listener.stop(); vm.speaker.stop(); vm.dClearLive() } }
+    // Auto-rotate button: follow the phone's sensor in Dialogue, even with the system rotation lock on.
+    val activity = ctx.findActivity()
+    DisposableEffect(vm.dRotate) {
+        activity?.requestedOrientation = if (vm.dRotate) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        onDispose { activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+    }
     LaunchedEffect(Unit) { vm.refreshModels() }
 
     // Fallback: the system voice dialog when SpeechRecognizer isn't available.
@@ -87,10 +100,11 @@ fun DialogueScreen(vm: AppViewModel) {
             return
         }
         listening = mine; ready = false; partial = ""
+        vm.configure(listener)
         listener.start(lang,
             onReady = { ready = true },
             onLevel = { level = it },
-            onPartial = { partial = it; vm.dPartial(mine, it) },
+            onPartial = { partial = it; if (it.isBlank()) vm.dClearLive() else vm.dPartial(mine, it) },
             onFinal = { t ->
                 listening = null; partial = ""; level = 0f; misses = 0
                 vm.dSend(mine, t) { if (convo && vm.dAutoTurn) listen(!mine) else convo = false }
@@ -133,6 +147,7 @@ fun DialogueScreen(vm: AppViewModel) {
         liveTranslation = if (vm.dLiveMine == !mine) vm.dLiveTr else "",
         level = if (listening == mine) level else 0f,
         onMic = { onMic(mine) }, onPickLang = { picker = mine },
+        onErase = { listener.erase() },
         onFocus = { f -> if (f) focused = mine else if (focused == mine) focused = null }
     )
     // keyboard open: the half you type in gets most of the space, the other one shrinks
@@ -169,7 +184,9 @@ fun DialogueScreen(vm: AppViewModel) {
 
 @Composable
 private fun ControlBar(vm: AppViewModel, horizontal: Boolean, split: String, flip: Boolean) {
+    val ctx2 = LocalContext.current
     val items: List<Triple<androidx.compose.ui.graphics.vector.ImageVector, String, () -> Unit>> = listOf(
+        Triple(if (vm.dRotate) Icons.Default.ScreenRotation else Icons.Default.ScreenLockRotation, "Автоповорот", vm::toggleRotate),
         Triple(if (split == "vertical") Icons.Default.ViewColumn else Icons.Default.ViewAgenda,
             if (split == "vertical") "Лево / право" else "Верх / низ") { vm.toggleSplit(split) },
         Triple(Icons.Default.Flip, "Развернуть собеседника") { vm.toggleFlip(split == "vertical") },
@@ -177,25 +194,32 @@ private fun ControlBar(vm: AppViewModel, horizontal: Boolean, split: String, fli
         Triple(if (vm.dAutoSpeak) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
             "Автоозвучка", vm::toggleAutoSpeak),
         Triple(Icons.Default.Autorenew, "Автоочередь", vm::toggleAutoTurn),
+        Triple(Icons.AutoMirrored.Filled.Undo, "Стереть последнюю фразу", vm::dDeleteLast),
         Triple(Icons.Default.DeleteSweep, "Очистить", vm::clearDialogue),
     )
     val content: @Composable () -> Unit = {
         items.forEach { (icon, desc, action) ->
-            IconButton(onClick = action) {
-                Icon(icon, desc, tint = if ((desc == "Развернуть собеседника" && flip) || (desc == "Автоочередь" && vm.dAutoTurn)) Accent
+            IconButton(onClick = {
+                action()
+                if (desc == "Автоповорот") android.widget.Toast.makeText(ctx2,
+                    if (!vm.dRotate) "Автоповорот выключен" else "Автоповорот: поверните телефон — лево/право", android.widget.Toast.LENGTH_SHORT).show()
+            }, Modifier.size(44.dp)) {
+                Icon(icon, desc, tint = if ((desc == "Развернуть собеседника" && flip) || (desc == "Автоочередь" && vm.dAutoTurn) || (desc == "Автоповорот" && vm.dRotate)) Accent
                     else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
-    if (horizontal) Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), Arrangement.SpaceEvenly, Alignment.CenterVertically) { content() }
-    else Column(Modifier.fillMaxHeight().padding(horizontal = 2.dp), Arrangement.SpaceEvenly, Alignment.CenterHorizontally) { content() }
+    if (horizontal) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 2.dp),
+        Arrangement.SpaceEvenly, Alignment.CenterVertically) { content() }
+    else Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState()).padding(horizontal = 2.dp),
+        Arrangement.SpaceEvenly, Alignment.CenterHorizontally) { content() }
 }
 
 @Composable
 private fun DialoguePanel(
     vm: AppViewModel, mine: Boolean, modifier: Modifier,
     listening: Boolean, ready: Boolean, partial: String, liveTranslation: String, level: Float,
-    onMic: () -> Unit, onPickLang: () -> Unit, onFocus: (Boolean) -> Unit,
+    onMic: () -> Unit, onPickLang: () -> Unit, onErase: () -> Unit, onFocus: (Boolean) -> Unit,
 ) {
     val color = if (mine) Accent else ThemColor
     val lang = if (mine) vm.dMe else vm.dThem
@@ -254,7 +278,14 @@ private fun DialoguePanel(
             }
 
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (listening) StopBar(onMic, Modifier.weight(1f))
+                if (listening) {
+                    // erase what was heard and keep listening
+                    FilledTonalIconButton(onClick = onErase, Modifier.size(56.dp), shape = RoundedCornerShape(16.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.Backspace, "Стереть")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    StopBar(onMic, Modifier.weight(1f))
+                }
                 else OutlinedTextField(text, { text = it }, Modifier.weight(1f).onFocusChanged { onFocus(it.isFocused) },
                     singleLine = true, placeholder = { Text("Текст…") }, shape = RoundedCornerShape(16.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -281,4 +312,10 @@ private fun Bubble(main: String, sub: String, own: Boolean, color: Color, onClic
             Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+}
+
+private fun android.content.Context.findActivity(): android.app.Activity? {
+    var c: android.content.Context? = this
+    while (c is android.content.ContextWrapper) { if (c is android.app.Activity) return c; c = c.baseContext }
+    return null
 }

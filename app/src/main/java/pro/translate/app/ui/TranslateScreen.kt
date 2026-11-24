@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -61,10 +62,11 @@ fun TranslateScreen(vm: AppViewModel) {
     fun listenOnce() {
         val lang = vm.voiceLang()
         hearing = true; ready = false
+        vm.configure(listener)
         listener.start(lang,
             onReady = { ready = true },
             onLevel = { level = it },
-            onPartial = { vm.voicePartial(it, lang) },
+            onPartial = { if (it.isBlank()) vm.clear() else vm.voicePartial(it, lang) },
             onFinal = { t ->
                 hearing = false; level = 0f; misses = 0
                 vm.voiceFinal(t, lang) { if (session && vm.vContinuous) listenOnce() else session = false }
@@ -156,7 +158,9 @@ fun TranslateScreen(vm: AppViewModel) {
                     clipboard.getText()?.text?.let { vm.updateInput(it) }
                 }) { Icon(Icons.Default.ContentPaste, "Вставить") }
                 Spacer(Modifier.weight(1f))
-                if (vm.input.isNotEmpty()) IconButton(onClick = vm::clear) { Icon(Icons.Default.Close, "Очистить") }
+                if (vm.input.isNotEmpty() || hearing) IconButton(onClick = {
+                    if (hearing) listener.erase() else vm.clear()
+                }) { Icon(if (hearing) Icons.AutoMirrored.Filled.Backspace else Icons.Default.Close, "Стереть") }
             }
         }
 

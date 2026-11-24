@@ -31,6 +31,10 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.LocalContext
 import android.content.res.Configuration
 import androidx.compose.ui.text.font.FontStyle
@@ -43,6 +47,7 @@ import pro.translate.app.SpeechListener
 
 private val ThemColor = Color(0xFF2E7D5B)
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DialogueScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
@@ -118,14 +123,20 @@ fun DialogueScreen(vm: AppViewModel) {
         listen(mine)
     }
 
+    var focused by remember { mutableStateOf<Boolean?>(null) }
+    val imeOpen = WindowInsets.isImeVisible
+
     @Composable
     fun Side(mine: Boolean, modifier: Modifier) = DialoguePanel(
         vm = vm, mine = mine, modifier = modifier,
         listening = listening == mine, ready = ready, partial = if (listening == mine) partial else "",
         liveTranslation = if (vm.dLiveMine == !mine) vm.dLiveTr else "",
         level = if (listening == mine) level else 0f,
-        onMic = { onMic(mine) }, onPickLang = { picker = mine }
+        onMic = { onMic(mine) }, onPickLang = { picker = mine },
+        onFocus = { f -> if (f) focused = mine else if (focused == mine) focused = null }
     )
+    // keyboard open: the half you type in gets most of the space, the other one shrinks
+    fun w(mine: Boolean) = if (imeOpen && focused != null) (if (focused == mine) 1f else 0.4f) else 1f
 
     // Auto-rotate: portrait = top/bottom, landscape = left/right. The button overrides it
     // until the phone is turned again.
@@ -137,13 +148,13 @@ fun DialogueScreen(vm: AppViewModel) {
     val flip = if (vertical) vm.dFlipV else vm.dFlipH
     val themMod = Modifier.graphicsLayer { if (flip) rotationZ = 180f }
     if (vertical) {
-        Column(Modifier.fillMaxSize().padding(8.dp)) {
-            Side(false, themMod.weight(1f).fillMaxWidth())
-            ControlBar(vm, horizontal = true, split = split, flip = flip)
-            Side(true, Modifier.weight(1f).fillMaxWidth())
+        Column(Modifier.fillMaxSize().imePadding().padding(8.dp)) {
+            Side(false, themMod.weight(w(false)).fillMaxWidth())
+            if (!imeOpen) ControlBar(vm, horizontal = true, split = split, flip = flip) else Spacer(Modifier.height(8.dp))
+            Side(true, Modifier.weight(w(true)).fillMaxWidth())
         }
     } else {
-        Row(Modifier.fillMaxSize().padding(8.dp)) {
+        Row(Modifier.fillMaxSize().imePadding().padding(8.dp)) {
             Side(true, Modifier.weight(1f).fillMaxHeight())
             ControlBar(vm, horizontal = false, split = split, flip = flip)
             Side(false, themMod.weight(1f).fillMaxHeight())
@@ -184,7 +195,7 @@ private fun ControlBar(vm: AppViewModel, horizontal: Boolean, split: String, fli
 private fun DialoguePanel(
     vm: AppViewModel, mine: Boolean, modifier: Modifier,
     listening: Boolean, ready: Boolean, partial: String, liveTranslation: String, level: Float,
-    onMic: () -> Unit, onPickLang: () -> Unit,
+    onMic: () -> Unit, onPickLang: () -> Unit, onFocus: (Boolean) -> Unit,
 ) {
     val color = if (mine) Accent else ThemColor
     val lang = if (mine) vm.dMe else vm.dThem
@@ -197,8 +208,11 @@ private fun DialoguePanel(
         if (n > 0) state.animateScrollToItem(n - 1)
     }
 
-    Card(modifier, shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceContainerHigh)) {
+    val shape = RoundedCornerShape(22.dp)
+    Box(modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh, shape)) {
+        // voice waves rise from the bottom of the half that is speaking (behind the content)
+        VoiceWaves(listening && ready, level, color, Modifier.fillMaxWidth().fillMaxHeight(0.5f)
+            .align(Alignment.BottomCenter).clip(shape))
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(10.dp).clip(CircleShape).background(color))
@@ -210,8 +224,8 @@ private fun DialoguePanel(
 
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = state, contentPadding = PaddingValues(10.dp)) {
                 if (msgs.isEmpty() && partial.isEmpty() && liveTranslation.isEmpty()) item {
-                    Text(if (mine) "Нажмите микрофон и говорите на языке «${Languages.displayName(lang)}»"
-                        else "Нажмите микрофон — собеседник говорит на «${Languages.displayName(lang)}»",
+                    Text(if (mine) "Нажмите микрофон и говорите. Ваш язык: ${Languages.displayName(lang)}"
+                        else "Нажмите микрофон — говорит собеседник. Его язык: ${Languages.displayName(lang)}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(8.dp))
                 }
@@ -240,20 +254,18 @@ private fun DialoguePanel(
             }
 
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(text, { text = it }, Modifier.weight(1f), singleLine = true,
-                    placeholder = { Text("Текст…") }, shape = RoundedCornerShape(16.dp),
+                if (listening) StopBar(onMic, Modifier.weight(1f))
+                else OutlinedTextField(text, { text = it }, Modifier.weight(1f).onFocusChanged { onFocus(it.isFocused) },
+                    singleLine = true, placeholder = { Text("Текст…") }, shape = RoundedCornerShape(16.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { vm.dSend(mine, text); text = "" }),
                     trailingIcon = {
                         if (text.isNotBlank()) IconButton({ vm.dSend(mine, text); text = "" }) {
                             Icon(Icons.AutoMirrored.Filled.Send, "Отправить", tint = color)
                         }
                     })
-                Spacer(Modifier.width(8.dp))
-                val pulse by animateFloatAsState(if (listening) 1f + level * 0.25f else 1f, label = "pulse")
-                FloatingActionButton(onClick = onMic, containerColor = if (listening) Color(0xFFE5484D) else color,
-                    contentColor = Color.White, shape = CircleShape, modifier = Modifier.size(60.dp).scale(pulse)) {
-                    if (listening && !ready) CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
-                    else Icon(if (listening) Icons.Default.Stop else Icons.Default.Mic, if (listening) "Готово" else "Говорить")
-                }
+                Spacer(Modifier.width(12.dp))
+                MicButton(listening, ready, level, bump = partial, color = color, onClick = onMic)
             }
         }
     }

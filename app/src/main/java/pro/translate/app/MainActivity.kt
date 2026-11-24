@@ -4,6 +4,9 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +24,10 @@ class MainActivity : ComponentActivity() {
     private val vm: AppViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         super.onCreate(savedInstanceState)
         handleIntent(intent)
         setContent {
@@ -47,7 +54,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 ) { pad ->
-                    Box(Modifier.fillMaxSize().padding(pad)) {
+                    Box(Modifier.fillMaxSize().padding(pad).consumeWindowInsets(pad)) {
                         when (tab) {
                             0 -> TranslateScreen(vm)
                             1 -> DialogueScreen(vm)

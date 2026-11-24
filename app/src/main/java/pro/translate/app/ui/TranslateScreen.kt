@@ -113,6 +113,8 @@ fun TranslateScreen(vm: AppViewModel) {
             Toast.makeText(ctx, "Голос для «${Languages.displayName(lang)}» не установлен в синтезе речи", Toast.LENGTH_LONG).show()
     }
 
+    Box(Modifier.fillMaxSize()) {
+    VoiceWaves(session && hearing && ready, level, Accent, Modifier.fillMaxWidth().height(220.dp).align(Alignment.BottomCenter))
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
         // Language bar
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -141,13 +143,8 @@ fun TranslateScreen(vm: AppViewModel) {
                 )
             )
             Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                val pulse by animateFloatAsState(if (hearing) 1f + level * 0.3f else 1f, label = "mic")
-                FilledIconButton(onClick = ::startVoice, Modifier.size(52.dp).scale(pulse),
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = if (session) Color(0xFFE5484D) else MaterialTheme.colorScheme.primary)) {
-                    if (session && hearing && !ready) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                    else Icon(if (session) Icons.Default.Stop else Icons.Default.Mic, if (session) "Стоп" else "Голос")
-                }
+                MicButton(session && hearing, ready, level, bump = vm.input, color = MaterialTheme.colorScheme.primary,
+                    onClick = ::startVoice, size = 52.dp)
                 Spacer(Modifier.width(4.dp))
                 FilterChip(selected = vm.vContinuous, onClick = vm::toggleContinuous,
                     label = { Text("Синхрон") }, leadingIcon = { Icon(Icons.Default.Autorenew, null, Modifier.size(16.dp)) })
@@ -221,6 +218,7 @@ fun TranslateScreen(vm: AppViewModel) {
         }
     }
 
+    }
     picker?.let { which ->
         LanguagePicker(
             selected = if (which == "from") vm.from else vm.to,
